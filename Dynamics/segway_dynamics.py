@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from segway_configuration import CONFIG
 import sympy as sp
+import casadi as ca
 
 sp.init_printing(use_unicode=True)
 
@@ -147,6 +149,39 @@ def pretty_print_second_order_ode(M, b, t, s, yaw, pitch):
     sp.pprint(b_display, use_unicode=True)
 
     print("\nM * q_ddot = b")
+
+
+#############################################################
+#
+#                    SYMPY to CASADI
+#
+# from: https://gist.github.com/jgillis/80bb594a6c8fcf55891d1d88b12b68b8
+#
+#############################################################
+
+
+def sympy2casadi(sympy_expr, sympy_vars, casadi_var):
+    """
+    Convert a SymPy expression or matrix to CasADi.
+
+    sympy_vars : list of plain SymPy symbols (no s(t) or Derivative)
+    casadi_var : CasADi vector whose entries match sympy_vars in order
+    """
+    assert casadi_var.is_vector(), "casadi_var must be a vector"
+    assert casadi_var.numel() == len(sympy_vars), "length mismatch"
+
+    if casadi_var.shape[1] > 1:  # row vector -> column vector
+        casadi_var = casadi_var.T
+    casadi_args = ca.vertsplit(casadi_var)
+
+    mapping = {
+        "ImmutableDenseMatrix": ca.blockcat,
+        "MutableDenseMatrix": ca.blockcat,
+        "Abs": ca.fabs,
+    }
+
+    f = sp.lambdify(sympy_vars, sympy_expr, modules=[mapping, ca])
+    return f(*casadi_args)
 
 
 #############################################################
@@ -402,14 +437,17 @@ pretty_print_second_order_ode(M, b, t, s, yaw, pitch)
 #
 #############################################################
 
-
-q_ddot = sp.simplify(M.LUsolve(b))  # solves Mq_ddot = b
-
-print("\nSolved Accelerations Equations:")
-pretty_print_matrix("q_ddot", q_ddot, t, s, yaw, pitch)
+params = CONFIG.segway
+constants = {
+    m_axle: params.axle_mass,
+    m_beam: params.beam_mass,
+    m_wheel: params.wheel_mass,
+    AXLE_LENGTH: params.axle_length,
+    BEAM_LENGTH: params.beam_lenght,
+    WHEEL_RADIUS: params.wheel_radius,
+}
 
 x1, x2, x3, x4, x5, x6 = sp.symbols("x_1 x_2 x_3 x_4 x_5 x_6")
-
 state_subs = {
     s: x1,
     s.diff(t): x2,
@@ -419,35 +457,53 @@ state_subs = {
     pitch.diff(t): x6,
 }
 
-f_s = sp.simplify(q_ddot[0].subs(state_subs))
-f_yaw = sp.simplify(q_ddot[1].subs(state_subs))
-f_pitch = sp.simplify(q_ddot[2].subs(state_subs))
+x = ca.SX.sym("x", 6)
+u = ca.SX.sym("u", 2)
+xu = ca.vertcat(x, u)
+syms = [x1, x2, x3, x4, x5, x6, torque_left, torque_right]
 
-f = sp.Matrix([x2, f_s, x4, f_yaw, x6, f_pitch])
+M_x = M.subs(state_subs).subs(constants)
+b_x = b.subs(state_subs).subs(constants)
 
-print("\nNonlinear state space:")
-pretty_print_matrix("f(x,u)", f, t, s, yaw, pitch)
+q_ddot = ca.solve(sympy2casadi(M_x, syms, xu), sympy2casadi(b_x, syms, xu))
+f_expl = ca.vertcat(x[1], q_ddot[0], x[3], q_ddot[1], x[5], q_ddot[2])
 
-constants = {
-    m_axle: 2,
-    m_beam: 4,
-    m_wheel: 1,
-    AXLE_LENGTH: 3,
-    BEAM_LENGTH: 6,
-    WHEEL_RADIUS: sp.Rational(1, 2),
-}
+# q_ddot = sp.simplify(M.LUsolve(b))  # solves Mq_ddot = b
+#
+# print("\nSolved Accelerations Equations:")
+# pretty_print_matrix("q_ddot", q_ddot, t, s, yaw, pitch)
+#
+#
+# state_subs = {
+#     s: x1,
+#     s.diff(t): x2,
+#     yaw: x3,
+#     yaw.diff(t): x4,
+#     pitch: x5,
+#     pitch.diff(t): x6,
+# }
+#
+# f_s = sp.simplify(q_ddot[0].subs(state_subs))
+# f_yaw = sp.simplify(q_ddot[1].subs(state_subs))
+# f_pitch = sp.simplify(q_ddot[2].subs(state_subs))
+#
+# f = sp.Matrix([x2, f_s, x4, f_yaw, x6, f_pitch])
+#
+# print("\nNonlinear state space:")
+# pretty_print_matrix("f(x,u)", f, t, s, yaw, pitch)
 
-x_vec = sp.Matrix([x1, x2, x3, x4, x5, x6])
-u_vec = sp.Matrix([torque_left, torque_right])
 
-A = f.jacobian(x_vec).subs({x1: 0, x2: 0, x3: 0, x4: 0, x5: 0, x6: 0})
-B = f.jacobian(u_vec).subs({x1: 0, x2: 0, x3: 0, x4: 0, x5: 0, x6: 0})
-
-print("\nLinear State Space:")
-pretty_print_matrix("A", A.subs(constants), t, s, yaw, pitch)
-pretty_print_matrix("B", B.subs(constants), t, s, yaw, pitch)
-
-print("A")
-sp.print_latex(A.subs(constants))
-print("B")
-sp.print_latex(B.subs(constants))
+# x_vec = sp.Matrix([x1, x2, x3, x4, x5, x6])
+# u_vec = sp.Matrix([torque_left, torque_right])
+#
+# A = f.jacobian(x_vec).subs({x1: 0, x2: 0, x3: 0, x4: 0, x5: 0, x6: 0})
+# B = f.jacobian(u_vec).subs({x1: 0, x2: 0, x3: 0, x4: 0, x5: 0, x6: 0})
+#
+# print("\nLinear State Space:")
+# pretty_print_matrix("A", A.subs(constants), t, s, yaw, pitch)
+# pretty_print_matrix("B", B.subs(constants), t, s, yaw, pitch)
+#
+# print("A")
+# sp.print_latex(A.subs(constants))
+# print("B")
+# sp.print_latex(B.subs(constants))
