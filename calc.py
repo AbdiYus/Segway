@@ -440,9 +440,14 @@ constants = {
 x_vec = sp.Matrix([x1, x2, x3, x4, x5, x6])
 u_vec = sp.Matrix([torque_left, torque_right])
 
-A = f.jacobian(x_vec)
-B = f.jacobian(u_vec)
+A = f.jacobian(x_vec).subs({x1: 0, x2: 0, x3: 0, x4: 0, x5: 0, x6: 0})
+B = f.jacobian(u_vec).subs({x1: 0, x2: 0, x3: 0, x4: 0, x5: 0, x6: 0})
 
 print("\nLinear State Space:")
 pretty_print_matrix("A", A.subs(constants), t, s, yaw, pitch)
 pretty_print_matrix("B", B.subs(constants), t, s, yaw, pitch)
+
+print("A")
+sp.print_latex(A.subs(constants))
+print("B")
+sp.print_latex(B.subs(constants))
