@@ -15,7 +15,7 @@ class SegwayParams:
 
 @dataclass(frozen=True)
 class MPCSettings:
-    dt: float = 0.02  # [seconds]
+    T: float = 0.02  # [seconds]
     horizon: int = 20  # [MPC window]
     torque_max: float = 3.0  # [Nm]
 
