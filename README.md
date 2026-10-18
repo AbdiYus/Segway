@@ -9,3 +9,8 @@
 | GUI  | 15.11 | - [ ] |
 | Rapport  | 22.11 | - [ ] |
 
+## Install
+
+```python
+pip install -r requirements.txt 
+```
