@@ -1,7 +1,9 @@
 from dataclasses import dataclass
-from segway_configuration import CONFIG
-import sympy as sp
+
 import casadi as ca
+import numpy as np
+import sympy as sp
+from Models.segway_configuration import CONFIG
 
 sp.init_printing(use_unicode=True)
 
@@ -10,6 +12,16 @@ sp.init_printing(use_unicode=True)
 class Energy:
     kinetic: sp.Expr
     potential: sp.Expr
+
+
+@dataclass
+class Model:
+    x: ca.SX
+    u: ca.SX
+    plant_acados: ca.SX
+    plant: ca.Function
+    A: np.ndarray
+    B: np.ndarray
 
 
 #############################################################
@@ -467,6 +479,21 @@ b_x = b.subs(state_subs).subs(constants)
 
 q_ddot = ca.solve(sympy2casadi(M_x, syms, xu), sympy2casadi(b_x, syms, xu))
 f_expl = ca.vertcat(x[1], q_ddot[0], x[3], q_ddot[1], x[5], q_ddot[2])
+
+
+# Linearization
+A = ca.Function("A", [x, u], [ca.jacobian(f_expl, x)])(np.zeros(6), np.zeros(2))
+B = ca.Function("B", [x, u], [ca.jacobian(f_expl, u)])(np.zeros(6), np.zeros(2))
+
+MODEL = Model(
+    x=x,
+    u=u,
+    plant_acados=f_expl,
+    plant=ca.Function("f", [x, u], [f_expl]),
+    A=np.array(A),
+    B=np.array(B),
+)
+
 
 # q_ddot = sp.simplify(M.LUsolve(b))  # solves Mq_ddot = b
 #
