@@ -217,3 +217,9 @@ __marimo__/
 .DS_Store
 __pycache__/ 
 *.pyc
+build/
+pyrightconfig.json
+
+# Acados 
+codegen_*/
+c_generated_code/
