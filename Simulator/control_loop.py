@@ -15,6 +15,7 @@ Two clocks run side by side:
                  constant (zero-order hold), exactly like on real hardware.
 """
 
+import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -146,3 +147,33 @@ class ClosedLoop:
         self.position += (
             speed * np.array([np.cos(heading), np.sin(heading)]) * self.physics_dt
         )
+
+
+class RealTimePacer:
+    """
+    Turns wall-clock time into a whole number of fixed physics steps.
+
+    The physics always uses the same dt (stable, repeatable), while the window
+    redraws whenever it can. If a frame is late, the next one simply takes
+    more physics steps to catch up.
+    """
+
+    MAX_CATCH_UP = (
+        0.1  # [s] never try to catch up more than this (e.g. after dragging the window)
+    )
+
+    def __init__(self, physics_dt: float, time_scale: float = 1.0) -> None:
+        self.physics_dt = physics_dt
+        self.time_scale = time_scale  # 0 = paused, 0.5 = slow motion, 1 = real time
+        self.last_wall_time = time.perf_counter()
+        self.unsimulated_time = 0.0
+
+    def steps_due(self) -> int:
+        now = time.perf_counter()
+        elapsed = min(now - self.last_wall_time, self.MAX_CATCH_UP)
+        self.last_wall_time = now
+
+        self.unsimulated_time += elapsed * self.time_scale
+        steps = int(self.unsimulated_time / self.physics_dt)
+        self.unsimulated_time -= steps * self.physics_dt
+        return steps

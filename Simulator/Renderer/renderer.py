@@ -3,18 +3,21 @@ from typing import Callable
 
 import numpy as np
 import pyvista as pv
+from imgui_bundle import hello_imgui, imgui, immapp
 
 from Control_System.Models.segway_configuration import CONFIG, SegwayParams
+from Simulator.Renderer.imgui_compat import CompatibleImguiPlotter
 
 MODEL_DIRECTORY = Path(__file__).parent / "3d_models"
 
 
 class Renderer:
     """
-    3D renderer of the segway.
+    3D renderer of the segway, shown inside an imgui application.
 
-    It only draws: it is told where the segway is and shows it there. Who
-    decides the pose (the closed loop, a recorded run, ...) is not its concern.
+    It only draws: it is told where the segway is and shows it there. The
+    imgui app calls back every frame, first to update the world, then to let
+    others (the control panel) draw their own windows on top of the 3D view.
 
     Frames (x forward, y left, z up):
         world
@@ -26,6 +29,7 @@ class Renderer:
 
     FLOOR_SIZE = 2.0  # [m]
     FLOOR_CELL_SIZE = 0.1  # [m]
+    WINDOW_SIZE = (1400, 900)  # [px]
 
     def __init__(self, params: SegwayParams = CONFIG.segway) -> None:
         self.axle_length = params.axle_length
@@ -33,13 +37,13 @@ class Renderer:
 
         body_mesh, wheel_mesh = self.load_models()
 
-        self.plotter = pv.Plotter(title="Segway Sim")
+        # Same API as pv.Plotter, but it renders into an imgui image instead of its own window
+        self.plotter = CompatibleImguiPlotter()
         self.plotter.add_mesh(self.make_floor(), style="wireframe", color="gray")
 
         self.body_actor = self.plotter.add_mesh(body_mesh, color="steelblue")
         self.wheel_l_actor = self.plotter.add_mesh(wheel_mesh.copy(), color="dimgray")
         self.wheel_r_actor = self.plotter.add_mesh(wheel_mesh.copy(), color="dimgray")
-        self.info_text = self.plotter.add_text("", position="upper_left", font_size=10)
 
         self.set_side_view()
 
@@ -109,11 +113,7 @@ class Renderer:
             ]
         )
 
-    # ============================== Display ===============================
-    def show_info(self, text: str) -> None:
-        """Text in the upper left corner."""
-        self.info_text.SetText(2, text)
-
+    # =============================== Camera ===============================
     def follow(self, x: float, y: float) -> None:
         """Slide the camera along with the segway, keeping the user's view angle."""
         camera = self.plotter.camera
@@ -130,25 +130,55 @@ class Renderer:
         self.plotter.camera_position = [(0.0, -1.0, 0.35), look_at, (0.0, 0.0, 1.0)]
 
     # ============================== Running ===============================
-    def add_key(self, key: str, callback: Callable[[], None]) -> None:
-        self.plotter.add_key_event(key, callback)
-
-    def run(self, on_frame: Callable[[], None], frame_dt: float) -> None:
+    def run(self, update: Callable[[], None], draw_ui: Callable[[], None]) -> None:
         """
-        Open the window and call on_frame roughly every frame_dt seconds until
-        the window is closed. on_frame should update the world and the pose.
+        Open the window and run until it is closed.
+
+        Every frame, in this order:
+            update()   advance the world and move the segway (update_pose)
+            3D view    drawn as the background, filling the whole window
+            draw_ui()  extra imgui windows drawn on top (the control panel)
         """
 
-        def timer_callback(_step: int) -> None:
-            on_frame()
-            self.plotter.render()
+        def draw_frame() -> None:
+            update()
+            self.draw_viewport()
+            draw_ui()
 
-        self.plotter.add_timer_event(
-            max_steps=10**9,  # effectively forever, the window decides when to stop
-            duration=int(frame_dt * 1000),  # [ms]
-            callback=timer_callback,
+        runner_params = hello_imgui.RunnerParams()
+        runner_params.app_window_params.window_title = "Segway Sim"
+        runner_params.app_window_params.window_geometry.size = self.WINDOW_SIZE
+        runner_params.callbacks.show_gui = draw_frame
+        runner_params.callbacks.setup_imgui_style = lambda: hello_imgui.apply_theme(
+            hello_imgui.ImGuiTheme_.imgui_colors_dark
         )
-        self.plotter.show()
+        # hello_imgui slows to a few FPS when the mouse is still. We animate, so always redraw.
+        runner_params.fps_idling.enable_idling = False
+        # The default full-window dock blocks mouse input to the 3D view (see pyvista-imgui example)
+        runner_params.imgui_window_params.default_imgui_window_type = (
+            hello_imgui.DefaultImGuiWindowType.no_default_window
+        )
+        # VTK must free its OpenGL objects while imgui's OpenGL context still exists,
+        # otherwise Python crashes (segfault) on exit
+        runner_params.callbacks.before_exit = self.plotter.render_window.Finalize
+
+        immapp.run(runner_params=runner_params)  # blocks until the window is closed
+
+    def draw_viewport(self) -> None:
+        """The 3D scene as a borderless imgui window covering the whole app window."""
+        viewport = imgui.get_main_viewport()
+        imgui.set_next_window_pos(viewport.pos)
+        imgui.set_next_window_size(viewport.size)
+
+        flags = (
+            imgui.WindowFlags_.no_decoration
+            | imgui.WindowFlags_.no_move
+            | imgui.WindowFlags_.no_resize
+            | imgui.WindowFlags_.no_bring_to_front_on_focus  # keeps the panel on top
+        )
+        imgui.begin("3D view", flags=flags)
+        self.plotter.render_imgui()  # renders VTK into a texture and shows it as an image
+        imgui.end()
 
     # ============================== Utilities =============================
     def make_floor(self) -> pv.PolyData:
