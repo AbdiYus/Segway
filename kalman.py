@@ -6,13 +6,13 @@ import control as ctl
 class KalmanFilter:
 
     def __init__(self, F, G, H, Q, R, x0, P0):
-        self.F = F
-        self.G = G
+        self.F = F          # A at time T
+        self.G = G          # B at time T
         self.H = H
-        self.Q = Q
-        self.R = R
-        self.x = x0
-        self.P = P0
+        self.Q = Q          # Process noise
+        self.R = R          # Sensor noise (Variances on the diagonal)
+        self.x = x0         # Initial state guess
+        self.P = P0         # Initial guess uncertainty / Error covariance
 
     def predict(self, u):
         self.x = self.F @ self.x + self.G @ u
