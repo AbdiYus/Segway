@@ -1,10 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from acados_template import latexify_plot
-from MPC import segway_integrator, segway_ocp, segway_solver
-from Models.segway_configuration import CONFIG
-from Models.segway_sensors import measure
+from Control_System.Models.segway_sensors import measure
 from UKF import SegwayUKF
+from Control_System.MPC import segway_integrator, segway_ocp, segway_solver
+from Control_System.Models.segway_configuration import CONFIG
 
 
 def plot_segway(
@@ -101,14 +101,13 @@ def sim(T_total=8.0, use_ukt=True, seed=0):
     simU = np.zeros((N_sim, nu))
     simX[0, :] = x0
     estX = np.zeros((N_sim, nx))
-    nis = np.zeros(N_sim) # Normalised Innovation Squared
+    nis = np.zeros(N_sim)  # Normalised Innovation Squared
     simX[0, :] = x0
 
     ukf = SegwayUKF(dt=Ts)  # starts at x_hat = 0: it does NOT know about the 20 deg
     u_prev = np.zeros(nu)
 
     for i in range(N_sim):
-
         # 1. sensors read the true state 2. UKF corrects
         z = measure(simX[i, :], u_prev, rng)
 
@@ -123,8 +122,8 @@ def sim(T_total=8.0, use_ukt=True, seed=0):
         solver.set(0, "lbx", x_mpc)
         solver.set(0, "ubx", x_mpc)
 
-        #solver.set(0, "lbx", simX[i, :])
-        #solver.set(0, "ubx", simX[i, :])
+        # solver.set(0, "lbx", simX[i, :])
+        # solver.set(0, "ubx", simX[i, :])
         status = solver.solve()
         simU[i, :] = solver.get(0, "u")
         if status != 0:
@@ -136,7 +135,7 @@ def sim(T_total=8.0, use_ukt=True, seed=0):
         # 5. UKF predicts with the torque that was applied
         ukf.predict(simU[i, :])
         u_prev = simU[i, :]
- 
+
     err = estX - simX[:-1]
     print("UKF RMS error per state [s, ds, theta, dtheta, psi, dpsi]:")
     print("  ", np.array2string(np.sqrt(np.mean(err**2, axis=0)), precision=4))
