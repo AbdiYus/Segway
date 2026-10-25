@@ -2,6 +2,7 @@ import os
 import sys
 from typing import Any
 import pyvista as pv
+import numpy as np
 
 
 class Renderer:
@@ -17,6 +18,37 @@ class Renderer:
 
         self.body = body
         self.wheel = wheel
+
+    # ==============================Manupultation=============================
+    def rotate_yaw(self, angle: float) -> np.ndarray:
+        """Homogenoues z-axis rotation"""
+        c = np.cos(angle)
+        s = np.sin(angle)
+        return np.array(
+            [
+                [c, -s, 0, 0],
+                [s, c, 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+            ]
+        )
+
+    def rotate_pich(self, angle: float) -> np.ndarray:
+        """Homogenoues y-axis rotation"""
+        c = np.cos(angle)
+        s = np.sin(angle)
+        return np.array(
+            [
+                [c, 0, s, 0],
+                [0, 1, 0, 0],
+                [-s, 0, c, 0],
+                [0, 0, 0, 1],
+            ]
+        )
+
+    # def translation(self, x: float, y: float, z: float) -> np.ndarray:
+
+    # =================================Utilties===============================
 
     def load_models(self) -> tuple[pv.ImageData, Any]:
         PATH = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -35,21 +67,34 @@ class Renderer:
         return body, wheel
 
 
-# plotter = pv.Plotter(title="Segway Sim")
-#
-# floor = pv.Plane(
-#     center=(0, 0, 0),
-#     direction=(0, 0, 1),
-#     i_size=15,
-#     j_size=15,
-#     i_resolution=15,
-#     j_resolution=15,
-# )
-#
-# plotter.add_mesh(floor, style="wireframe", color="gray")
-#
-# plotter.add_mesh(body, color="steel_blue")
-# plotter.add_mesh(wheel, color="gray")
-# plotter.add_mesh(wheel, color="gray")
-#
-# plotter.show()
+PATH = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+body_reader = pv.get_reader(f"{PATH}/3d_models/body.obj")
+wheel_reader = pv.get_reader(f"{PATH}/3d_models/wheel.obj")
+
+body = body_reader.read()
+wheel = wheel_reader.read()
+
+if body.n_points == 0:
+    raise ValueError(f"{PATH}/3d_models/body.obj is empty")
+if body.n_points == 0:
+    raise ValueError(f"{PATH}/3d_models/wheel.obj is empty")
+
+plotter = pv.Plotter(title="Segway Sim")
+
+floor = pv.Plane(
+    center=(0, 0, 0),
+    direction=(0, 0, 1),
+    i_size=15,
+    j_size=15,
+    i_resolution=15,
+    j_resolution=15,
+)
+
+plotter.add_mesh(floor, style="wireframe", color="gray")
+
+plotter.add_mesh(body, color="steel_blue")
+plotter.add_mesh(wheel, color="gray")
+plotter.add_mesh(wheel, color="gray")
+
+plotter.show()

@@ -14,8 +14,8 @@ State and input follow Models/segway_dynamics.py:
 
 import numpy as np
 
-from Models.segway_configuration import CONFIG
-from Models.segway_dynamics import MODEL
+from .segway_configuration import CONFIG
+from .segway_dynamics import MODEL
 
 S, DS, THETA, DTHETA, PSI, DPSI = range(6)
 G = 9.81

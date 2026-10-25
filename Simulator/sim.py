@@ -1,10 +1,10 @@
 import numpy as np
+from Simulator.UKF import SegwayUKF
 import matplotlib.pyplot as plt
 from acados_template import latexify_plot
 from Control_System.Models.segway_sensors import measure
-from UKF import SegwayUKF
-from Control_System.MPC import segway_integrator, segway_ocp, segway_solver
 from Control_System.Models.segway_configuration import CONFIG
+from Control_System.MPC import segway_integrator, segway_ocp, segway_solver
 
 
 def plot_segway(
@@ -83,7 +83,7 @@ def plot_segway(
         plt.show()
 
 
-def sim(T_total=8.0, use_ukt=True, seed=0):
+def sim(T_total=8.0, use_ukf=True, seed=0):
     x0 = np.array([0, 0, 0, 0, np.radians(20), 0])
     rng = np.random.default_rng(seed)
 

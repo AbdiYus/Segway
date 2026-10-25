@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import casadi as ca
 import numpy as np
 import sympy as sp
-from Models.segway_configuration import CONFIG
+from .segway_configuration import CONFIG
 
 sp.init_printing(use_unicode=True)
 

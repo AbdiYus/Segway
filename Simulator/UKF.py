@@ -20,9 +20,9 @@ import numpy as np
 from filterpy.common import Q_discrete_white_noise
 from filterpy.kalman import MerweScaledSigmaPoints, UnscentedKalmanFilter
 
-from Models import segway_sensors as sensors
-from Models.segway_configuration import CONFIG
-from Models.segway_dynamics import MODEL
+from Control_System.Models import segway_sensors as sensors
+from Control_System.Models.segway_configuration import CONFIG
+from Control_System.Models.segway_dynamics import MODEL
 
 N_STATES = 6
 
@@ -43,8 +43,13 @@ def make_discrete_step(dt, substeps):
 
 
 class SegwayUKF:
-    def __init__(self, dt=CONFIG.mpc.T, x0=None, settings=CONFIG.ukf,
-                 sensor_settings=CONFIG.sensors):
+    def __init__(
+        self,
+        dt=CONFIG.mpc.T,
+        x0=None,
+        settings=CONFIG.ukf,
+        sensor_settings=CONFIG.sensors,
+    ):
         n = N_STATES
         self._step = make_discrete_step(dt, settings.rk4_substeps)
 
@@ -52,8 +57,12 @@ class SegwayUKF:
             n=n, alpha=settings.alpha, beta=settings.beta, kappa=settings.kappa
         )
         self.ukf = UnscentedKalmanFilter(
-            dim_x=n, dim_z=sensors.N_MEAS, dt=dt,
-            fx=self._fx, hx=sensors.h, points=points,
+            dim_x=n,
+            dim_z=sensors.N_MEAS,
+            dt=dt,
+            fx=self._fx,
+            hx=sensors.h,
+            points=points,
         )
 
         # Q: one block per (position, velocity) pair: (s, ds), (theta, dtheta), (psi, dpsi)
@@ -65,11 +74,16 @@ class SegwayUKF:
 
         # R: independent sensors. Encoder error = quantisation, Delta^2 / 12
         var_enc = sensors.encoder_resolution(sensor_settings) ** 2 / 12
-        self.R_full = np.diag([
-            sensor_settings.accel_std**2, sensor_settings.accel_std**2,
-            sensor_settings.gyro_std**2, sensor_settings.gyro_std**2,
-            var_enc, var_enc,
-        ])
+        self.R_full = np.diag(
+            [
+                sensor_settings.accel_std**2,
+                sensor_settings.accel_std**2,
+                sensor_settings.gyro_std**2,
+                sensor_settings.gyro_std**2,
+                var_enc,
+                var_enc,
+            ]
+        )
         self.ukf.R = self.R_full
 
         self.ukf.x = np.zeros(n) if x0 is None else np.asarray(x0, float)
@@ -119,3 +133,4 @@ class SegwayUKF:
     def P(self):
         """Covariance of the estimate."""
         return self.ukf.P.copy()
+
