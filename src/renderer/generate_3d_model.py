@@ -9,11 +9,9 @@ Frame convention (matches the transforms in the renderer):
 Sizes default to CONFIG.segway values; change and re-run to regenerate.
 """
 
-from os import path
-import os
-import sys
 import numpy as np
-from Control_System.Models.segway_configuration import CONFIG
+from pathlib import Path
+from ..models.configuration import CONFIG
 
 AXLE_LENGTH = CONFIG.segway.axle_length
 BEAM_LENGTH = CONFIG.segway.beam_lenght
@@ -103,7 +101,7 @@ def make_wheel():
 
 
 if __name__ == "__main__":
-    PATH = os.path.dirname(os.path.abspath(sys.argv[0]))
+    PATH = Path(__file__).parent 
     make_body().write(f"{PATH}/3d_models/body.obj", "body")
     make_wheel().write(f"{PATH}/3d_models/wheel.obj", "wheel")
     print("wrote body.obj, wheel.obj")

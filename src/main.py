@@ -1,11 +1,10 @@
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
+from .renderer.ui import ControlPanel
+from .renderer.renderer import Renderer
+from .models.configuration import CONFIG
 from acados_template import latexify_plot
-
-from Control_System.Models.segway_configuration import CONFIG
-from Simulator.control_loop import PITCH, S, YAW, ClosedLoop, RealTimePacer
-from Simulator.Renderer.control_panel import ControlPanel
-from Simulator.Renderer.renderer import Renderer
+from .simulator.control_loop import PITCH, S, YAW, ClosedLoop, RealTimePacer
 
 
 def plot_segway(
@@ -87,7 +86,6 @@ def plot_segway(
 def run_live(
     initial_pitch_deg: float = 20.0,
     use_ukf: bool = True,
-    plot_afterwards: bool = True,
 ) -> None:
     initial_state = np.array([0, 0, 0, 0, np.radians(initial_pitch_deg), 0])
 
@@ -111,14 +109,14 @@ def run_live(
 
     renderer.run(update, draw_ui=panel.draw)  # blocks until the window is closed
 
-    if plot_afterwards:
-        t, true_states, _, torques = loop.history.as_arrays()
-        plot_segway(
-            t,
-            u_max=CONFIG.mpc.torque_constraint,
-            U=torques[:-1],
-            X_true=true_states,
-        )
+    # if plot_afterwards:
+    #     t, true_states, _, torques = loop.history.as_arrays()
+    #     plot_segway(
+    #         t,
+    #         u_max=CONFIG.mpc.torque_constraint,
+    #         U=torques[:-1],
+    #         X_true=true_states,
+    #     )
 
 
 if __name__ == "__main__":

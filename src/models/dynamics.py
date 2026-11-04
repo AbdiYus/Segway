@@ -1,9 +1,51 @@
-from dataclasses import dataclass
+"""Segway equations of motion: derived symbolically, exported as a CasADi model.
 
+Role in the system
+------------------
+Derives the dynamics once with SymPy (Lagrange), plugs in the parameters
+from configuration.py, converts them to CasADi, and exposes the result as MODEL:
+    - control/mpc_acados.py   MODEL.x, u, dx, plant_implicit/explicit_acados -> AcadosModel
+    - sim/plant.py            MODEL.plant  -> integrated as the simulated system
+    - estimation/ukf.py       MODEL.plant  -> process model
+    - control/lqr.py          MODEL.A, B   -> linearization around upright
+Nothing here knows about simulation, noise, or control.
+
+Pipeline
+--------
+velocities -> energies (T, V) -> Lagrangian L = T - V -> Euler-Lagrange
+-> M(q) q_ddot = b(q, q_dot, tau) -> q_ddot = M^-1 b (in CasADi)
+-> first-order form x_dot = f(x, u)
+
+Model
+-----
+Three rigid bodies on flat ground:
+    axle   thin rod of length L_1 along the wheel axis, yaws with the body
+    beam   thin rod of length L_2, pivots about the axle (pitch)
+    wheels two uniform disks of radius h, rolling without slip
+No friction, no wheel slip; wheels' inertia about the vertical axis is ignored.
+
+State  x = [s, s_dot, theta, theta_dot, psi, psi_dot]
+    s      distance driven along the heading   [m]
+    theta  YAW, heading from world x-axis      [rad], positive = counter-clockwise (left)
+    psi    PITCH of the beam from upright      [rad], 0 = upright, positive = leaning forward
+Input  u = [tau_l, tau_r]  wheel torques       [Nm], positive drives forward
+       equal torques -> drive/pitch, tau_r > tau_l -> turn left
+
+Linearization
+-------------
+A, B are evaluated at x = 0, u = 0 (upright, at rest). This is an
+equilibrium for any s and theta, since neither appears in the dynamics.
+
+Conventions
+-----------
+SI units, g = 9.81 m/s^2. Continuous time; discretization is left to the caller.
+"""
+
+from dataclasses import dataclass
+from .configuration import CONFIG
 import casadi as ca
-import numpy as np
 import sympy as sp
-from .segway_configuration import CONFIG
+import numpy as np
 
 sp.init_printing(use_unicode=True)
 
@@ -55,13 +97,6 @@ g = sp.Rational(981, 100)
 
 
 def pretty_print_eq(name, expr, t, s=None, yaw=None, pitch=None):
-    """
-    Pretty-print a SymPy expression in terminal form.
-
-    Example:
-        pretty_print_eq("v_l²", v_left_squared, t, s, yaw, pitch)
-    """
-
     substitutions = {}
 
     if s is not None:
@@ -174,19 +209,13 @@ def pretty_print_second_order_ode(M, b, t, s, yaw, pitch):
 #############################################################
 
 
-def sympy2casadi(sympy_expr, sympy_vars, casadi_var):
-    """
-    Convert a SymPy expression or matrix to CasADi.
+def sympy2casadi(sympy_expr, sympy_symbol_list, casadi_vector_list):
+    assert casadi_vector_list.is_vector(), "casadi_var must be a vector"
+    assert casadi_vector_list.numel() == len(sympy_symbol_list), "length mismatch"
 
-    sympy_vars : list of plain SymPy symbols (no s(t) or Derivative)
-    casadi_var : CasADi vector whose entries match sympy_vars in order
-    """
-    assert casadi_var.is_vector(), "casadi_var must be a vector"
-    assert casadi_var.numel() == len(sympy_vars), "length mismatch"
-
-    if casadi_var.shape[1] > 1:  # row vector -> column vector
-        casadi_var = casadi_var.T
-    casadi_args = ca.vertsplit(casadi_var)
+    if casadi_vector_list.shape[1] > 1:  # row vector -> column vector
+        casadi_vector_list = casadi_vector_list.T
+    casadi_args = ca.vertsplit(casadi_vector_list)
 
     mapping = {
         "ImmutableDenseMatrix": ca.blockcat,
@@ -194,7 +223,7 @@ def sympy2casadi(sympy_expr, sympy_vars, casadi_var):
         "Abs": ca.fabs,
     }
 
-    f = sp.lambdify(sympy_vars, sympy_expr, modules=[mapping, ca])
+    f = sp.lambdify(sympy_symbol_list, sympy_expr, modules=[mapping, ca])
     return f(*casadi_args)
 
 
@@ -203,39 +232,6 @@ def sympy2casadi(sympy_expr, sympy_vars, casadi_var):
 #         GENERALIZED FORCES AND VELOCITES VECTORS
 #
 #############################################################
-
-# beam_position_world = sp.Matrix(
-#     [
-#         [x + (BEAM_LENGTH / 2) * sp.sin(pitch) * sp.cos(yaw)],
-#         [y + (BEAM_LENGTH / 2) * sp.sin(pitch) * sp.sin(yaw)],
-#         [WHEEL_RADIUS + (BEAM_LENGTH / 2) * sp.cos(pitch)],
-#     ]
-# )
-#
-# axle_position_world = sp.Matrix(
-#     [
-#         [x],
-#         [y],
-#         [WHEEL_RADIUS],
-#     ]
-# )
-#
-# right_wheel_position_world = sp.Matrix(
-#     [
-#         [x + (AXLE_LENGTH / 2) * sp.sin(yaw)],
-#         [y - (AXLE_LENGTH / 2) * sp.cos(yaw)],
-#         [WHEEL_RADIUS],
-#     ]
-# )
-#
-# left_wheel_position_world = sp.Matrix(
-#     [
-#         [x - (AXLE_LENGTH / 2) * sp.sin(yaw)],
-#         [y + (AXLE_LENGTH / 2) * sp.cos(yaw)],
-#         [WHEEL_RADIUS],
-#     ]
-# )
-
 
 v_axle_world = sp.Matrix(
     [
@@ -522,44 +518,3 @@ MODEL = Model(
     A=np.array(A),
     B=np.array(B),
 )
-
-
-# q_ddot = sp.simplify(M.LUsolve(b))  # solves Mq_ddot = b
-#
-# print("\nSolved Accelerations Equations:")
-# pretty_print_matrix("q_ddot", q_ddot, t, s, yaw, pitch)
-#
-#
-# state_subs = {
-#     s: x1,
-#     s.diff(t): x2,
-#     yaw: x3,
-#     yaw.diff(t): x4,
-#     pitch: x5,
-#     pitch.diff(t): x6,
-# }
-#
-# f_s = sp.simplify(q_ddot[0].subs(state_subs))
-# f_yaw = sp.simplify(q_ddot[1].subs(state_subs))
-# f_pitch = sp.simplify(q_ddot[2].subs(state_subs))
-#
-# f = sp.Matrix([x2, f_s, x4, f_yaw, x6, f_pitch])
-#
-# print("\nNonlinear state space:")
-# pretty_print_matrix("f(x,u)", f, t, s, yaw, pitch)
-
-
-# x_vec = sp.Matrix([x1, x2, x3, x4, x5, x6])
-# u_vec = sp.Matrix([torque_left, torque_right])
-#
-# A = f.jacobian(x_vec).subs({x1: 0, x2: 0, x3: 0, x4: 0, x5: 0, x6: 0})
-# B = f.jacobian(u_vec).subs({x1: 0, x2: 0, x3: 0, x4: 0, x5: 0, x6: 0})
-#
-# print("\nLinear State Space:")
-# pretty_print_matrix("A", A.subs(constants), t, s, yaw, pitch)
-# pretty_print_matrix("B", B.subs(constants), t, s, yaw, pitch)
-#
-# print("A")
-# sp.print_latex(A.subs(constants))
-# print("B")
-# sp.print_latex(B.subs(constants))

@@ -20,10 +20,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from Control_System.MPC import segway_integrator, segway_ocp, segway_solver
-from Control_System.Models.segway_configuration import CONFIG
-from Control_System.Models.segway_sensors import measure
-from Simulator.UKF import SegwayUKF
+from ..controllers.linear_MPC import segway_integrator, segway_ocp, segway_solver
+from ..models.configuration import CONFIG
+from ..models.sensors import measure
+from ..observers.UKF import SegwayUKF
 
 # Index of each entry in the state vector [s, s_dot, yaw, yaw_rate, pitch, pitch_rate]
 S, S_DOT, YAW, YAW_RATE, PITCH, PITCH_RATE = range(6)

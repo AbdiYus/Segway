@@ -20,9 +20,9 @@ import numpy as np
 from filterpy.common import Q_discrete_white_noise
 from filterpy.kalman import MerweScaledSigmaPoints, UnscentedKalmanFilter
 
-from Control_System.Models import segway_sensors as sensors
-from Control_System.Models.segway_configuration import CONFIG
-from Control_System.Models.segway_dynamics import MODEL
+from ..models import sensors
+from ..models.configuration import CONFIG
+from ..models.dynamics import MODEL
 
 N_STATES = 6
 
@@ -133,4 +133,3 @@ class SegwayUKF:
     def P(self):
         """Covariance of the estimate."""
         return self.ukf.P.copy()
-

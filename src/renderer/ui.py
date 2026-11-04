@@ -9,8 +9,8 @@ values, so there is no widget state to keep in sync.
 import numpy as np
 from imgui_bundle import imgui
 
-from Control_System.Models.segway_configuration import CONFIG
-from Simulator.control_loop import (
+from ..models.configuration import CONFIG
+from ..simulator.control_loop import (
     PITCH,
     PITCH_RATE,
     S,

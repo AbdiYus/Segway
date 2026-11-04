@@ -1,37 +1,59 @@
-from pathlib import Path
-from typing import Callable
+"""3D view of the segway, drawn inside an imgui application.
+
+Role in the system
+------------------
+Used by main.py, which owns the simulation loop and hands two callbacks to run():
+    update()    advance the world and call update_pose() with the new state
+    draw_ui()   draw extra imgui windows (control panel, plots) on top of the 3D view
+Only draws: it is told where the segway is and shows it there. It knows
+nothing about dynamics, control or estimation.
+Reads SegwayParameters (axle length, wheel radius) and CONFIG.renderer
+(window size, floor) from configuration.py, and the meshes in 3d_models/.
+
+How it is drawn
+---------------
+hello_imgui owns the OS window and the OpenGL context. VTK (through
+pyvista) renders the scene off-screen into a texture every frame, and that
+texture is shown as an image inside a borderless imgui window filling the
+whole app. Other imgui windows float on top of it.
+
+Frames
+------
+Right-handed, x forward, y left, z up. Same conventions as models/segway_model.py:
+    yaw    rotation about z, positive = counter-clockwise (turning left)
+    pitch  rotation about y, positive = leaning forward (+z tips towards +x)
+
+    world
+     └─ base     (x, y, yaw)             where the segway stands on the floor
+         ├─ body     (axle height, pitch)
+         ├─ wheel_l  (+axle/2 in y, axle height, wheel spin)
+         └─ wheel_r  (-axle/2 in y, axle height, wheel spin)
+
+x, y are not states of the dynamics model. The caller integrates them
+from the model state: x_dot = s_dot cos(yaw), y_dot = s_dot sin(yaw).
+
+Mesh requirements (3d_models/*.obj)
+-----------------------------------
+SI units [m]. Origin at the axle centre.
+    body.obj   standing upright along +z, facing +x
+    wheel.obj  centred, spin axis along y
+A mesh exported with another origin or orientation will be drawn offset or tilted.
+The body and wheel are generated when running `generate_3d_model.py`.
+"""
 
 import numpy as np
 import pyvista as pv
+from pathlib import Path
+from typing import Callable
+from ..models.configuration import CONFIG, SegwayParameters
+from .imgui_compat import CompatibleImguiPlotter
 from imgui_bundle import hello_imgui, imgui, immapp
-
-from Control_System.Models.segway_configuration import CONFIG, SegwayParams
-from Simulator.Renderer.imgui_compat import CompatibleImguiPlotter
 
 MODEL_DIRECTORY = Path(__file__).parent / "3d_models"
 
 
 class Renderer:
-    """
-    3D renderer of the segway, shown inside an imgui application.
-
-    It only draws: it is told where the segway is and shows it there. The
-    imgui app calls back every frame, first to update the world, then to let
-    others (the control panel) draw their own windows on top of the 3D view.
-
-    Frames (x forward, y left, z up):
-        world
-         └─ base     (x, y, yaw)              where the segway stands on the floor
-             ├─ body     (axle height, pitch)
-             ├─ wheel_l  (+axle/2 in y, axle height, wheel spin)
-             └─ wheel_r  (-axle/2 in y, axle height, wheel spin)
-    """
-
-    FLOOR_SIZE = 2.0  # [m]
-    FLOOR_CELL_SIZE = 0.1  # [m]
-    WINDOW_SIZE = (1400, 900)  # [px]
-
-    def __init__(self, params: SegwayParams = CONFIG.segway) -> None:
+    def __init__(self, params: SegwayParameters = CONFIG.segway) -> None:
         self.axle_length = params.axle_length
         self.wheel_radius = params.wheel_radius
 
@@ -146,21 +168,27 @@ class Renderer:
             draw_ui()
 
         runner_params = hello_imgui.RunnerParams()
-        runner_params.app_window_params.window_title = "Segway Sim"
-        runner_params.app_window_params.window_geometry.size = self.WINDOW_SIZE
-        runner_params.callbacks.show_gui = draw_frame
-        runner_params.callbacks.setup_imgui_style = lambda: hello_imgui.apply_theme(
+
+        window = runner_params.app_window_params
+        window.window_title = "Segway Simulator"
+        window.window_geometry.size = CONFIG.renderer.window_size
+
+        callbacks = runner_params.callbacks
+        callbacks.show_gui = draw_frame
+        callbacks.setup_imgui_style = lambda: hello_imgui.apply_theme(
             hello_imgui.ImGuiTheme_.imgui_colors_dark
         )
-        # hello_imgui slows to a few FPS when the mouse is still. We animate, so always redraw.
+        # VTK must free its OpenGL objects while imgui's OpenGL context still exists,
+        # otherwise Python crashes (segfault) on exit
+        callbacks.before_exit = self.plotter.render_window.Finalize
+
+        # Idling slows the frame rate when the mouse is inactive (not wanted)
         runner_params.fps_idling.enable_idling = False
+
         # The default full-window dock blocks mouse input to the 3D view (see pyvista-imgui example)
         runner_params.imgui_window_params.default_imgui_window_type = (
             hello_imgui.DefaultImGuiWindowType.no_default_window
         )
-        # VTK must free its OpenGL objects while imgui's OpenGL context still exists,
-        # otherwise Python crashes (segfault) on exit
-        runner_params.callbacks.before_exit = self.plotter.render_window.Finalize
 
         immapp.run(runner_params=runner_params)  # blocks until the window is closed
 
@@ -182,12 +210,13 @@ class Renderer:
 
     # ============================== Utilities =============================
     def make_floor(self) -> pv.PolyData:
-        cells = int(self.FLOOR_SIZE / self.FLOOR_CELL_SIZE)
+        settings = CONFIG.renderer
+        cells = int(settings.floor_size / settings.floor_grid_size)
         return pv.Plane(
             center=(0, 0, 0),
             direction=(0, 0, 1),
-            i_size=self.FLOOR_SIZE,
-            j_size=self.FLOOR_SIZE,
+            i_size=settings.floor_size,
+            j_size=settings.floor_size,
             i_resolution=cells,
             j_resolution=cells,
         )

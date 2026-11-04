@@ -1,5 +1,5 @@
-from .Models.segway_dynamics import MODEL
-from .Models.segway_configuration import CONFIG
+from ..models.dynamics import MODEL
+from ..models.configuration import CONFIG
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 import numpy as np
 import casadi as ca
