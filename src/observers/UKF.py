@@ -42,7 +42,7 @@ def make_discrete_step(dt, substeps):
     return ca.Function("f_discrete", [x, u], [x_next])
 
 
-class SegwayUKF:
+class UnscentedKalmanFilter:
     def __init__(
         self,
         dt=CONFIG.mpc.T,

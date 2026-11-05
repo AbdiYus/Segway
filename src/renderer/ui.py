@@ -88,10 +88,6 @@ class ControlPanel:
         )
 
     def draw_settings(self) -> None:
-        changed, motors_enabled = imgui.checkbox("Motors on", self.loop.motors_enabled)
-        if changed:
-            self.loop.set_motors_enabled(motors_enabled)
-
         _, self.pacer.time_scale = imgui.slider_float(
             "speed", self.pacer.time_scale, 0.0, 2.0
         )

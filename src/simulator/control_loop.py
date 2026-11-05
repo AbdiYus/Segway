@@ -23,7 +23,7 @@ import numpy as np
 from ..controllers.linear_MPC import segway_integrator, segway_ocp, segway_solver
 from ..models.configuration import CONFIG
 from ..models.sensors import measure
-from ..observers.UKF import SegwayUKF
+from ..observers.UKF import UnscentedKalmanFilter
 
 # Index of each entry in the state vector [s, s_dot, yaw, yaw_rate, pitch, pitch_rate]
 S, S_DOT, YAW, YAW_RATE, PITCH, PITCH_RATE = range(6)
@@ -76,7 +76,7 @@ class ClosedLoop:
             "T", physics_dt
         )  # the plant takes small steps, not a full MPC step
 
-        self.ukf = SegwayUKF(
+        self.ukf = UnscentedKalmanFilter(
             dt=self.control_dt
         )  # starts at x_hat = 0, it must find the true state
         self.use_ukf = use_ukf

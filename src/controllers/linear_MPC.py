@@ -2,7 +2,6 @@ from ..models.dynamics import MODEL
 from ..models.configuration import CONFIG
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 import numpy as np
-import casadi as ca
 import scipy as sci
 
 from acados_template.acados_sim import AcadosSim
@@ -41,7 +40,7 @@ def segway_ode() -> AcadosModel:
     return model
 
 
-def segway_ocp() -> AcadosOcp:
+def segway_ocp(Q: np.ndarray, R: np.ndarray) -> AcadosOcp:
     ocp = AcadosOcp()
     ode = segway_ode()
 
@@ -52,8 +51,6 @@ def segway_ocp() -> AcadosOcp:
     nx = ode.x.rows()
     nu = ode.u.rows()
 
-    Q = np.diag([1.0, 0.1, 1.0, 0.1, 100.0, 1.0])  # [s, ds, theta, dtheta, psi, dpsi]
-    R = np.diag([0.01, 0.01])
     P = sci.linalg.solve_continuous_are(MODEL.A, MODEL.B, Q, R)
 
     # Stage cost
@@ -105,3 +102,16 @@ def segway_integrator(ocp: AcadosOcp) -> AcadosSimSolver:
 
 def plant(x, u):
     return MODEL.plant(x, u)
+
+
+class LinearMPC:
+    def __init__(self, Q: np.ndarray, R: np.ndarray) -> None:
+        self.solver = segway_solver(segway_ocp(Q, R))
+
+    def compute(self, state_estiamtion):
+        self.solver.set(0, "lbx", state_estiamtion)
+        self.solver.set(0, "ubx", state_estiamtion)
+        return self.solver.get(0, "u")
+
+    def reset(self):
+        self.solver.reset()
