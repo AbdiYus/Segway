@@ -4,10 +4,11 @@ Role in the system
 ------------------
 Derives the dynamics once with SymPy (Lagrange), plugs in the parameters
 from configuration.py, converts them to CasADi, and exposes the result as MODEL:
-    - control/mpc_acados.py   MODEL.x, u, dx, plant_implicit/explicit_acados -> AcadosModel
-    - sim/plant.py            MODEL.plant  -> integrated as the simulated system
-    - estimation/ukf.py       MODEL.plant  -> process model
-    - control/lqr.py          MODEL.A, B   -> linearization around upright
+    - controllers/linear_mpc.py   MODEL.x, u, dx, plant_implicit/explicit_acados -> AcadosModel
+                                  (also the acados integrator used as the simulated plant)
+    - observers/ukf.py            MODEL.plant  -> process model
+    - models/sensors.py           MODEL.plant  -> accelerations seen by the IMU
+    - controllers/lqr.py          MODEL.A, B   -> linearization around upright
 Nothing here knows about simulation, noise, or control.
 
 Pipeline
@@ -229,7 +230,7 @@ def sympy2casadi(sympy_expr, sympy_symbol_list, casadi_vector_list):
 
 #############################################################
 #
-#         GENERALIZED FORCES AND VELOCITES VECTORS
+#         GENERALIZED FORCES AND VELOCITIES VECTORS
 #
 #############################################################
 
@@ -283,7 +284,7 @@ v_left_world = v_axle_world + r_left_axle.diff(t)
 v_left_squared = sp.simplify((v_left_world.T * v_left_world)[0, 0])
 v_left_forward = sp.simplify((v_left_world.T * forward_vector)[0, 0])
 
-print("\nSquared Velocites:")
+print("\nSquared Velocities:")
 pretty_print_eq("v_l", v_left_squared, t, s, yaw, pitch)
 pretty_print_eq("v_r", v_right_squared, t, s, yaw, pitch)
 pretty_print_eq("v_lf", v_left_forward, t, s, yaw, pitch)
@@ -453,7 +454,7 @@ constants = {
     m_beam: params.beam_mass,
     m_wheel: params.wheel_mass,
     AXLE_LENGTH: params.axle_length,
-    BEAM_LENGTH: params.beam_lenght,
+    BEAM_LENGTH: params.beam_length,
     WHEEL_RADIUS: params.wheel_radius,
 }
 

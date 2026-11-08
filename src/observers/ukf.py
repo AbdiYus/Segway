@@ -1,24 +1,25 @@
 """
 Unscented Kalman filter for the segway.
 
-Uses the same model as the MPC (Models/segway_dynamics.py -> MODEL.plant),
+Uses the same model as the MPC (models/dynamics.py -> MODEL.plant),
 so the filter, the MPC and the simulated plant share one description of
 the robot.
 
     x = [s, ds, theta, dtheta, psi, dpsi]
     u = [tau_l, tau_r]
-    z = [a_x, a_z, gyro_pitch, gyro_yaw, enc_l, enc_r]   (Models/segway_sensors.py)
+    z = [a_x, a_z, gyro_pitch, gyro_yaw, enc_l, enc_r]   (models/sensors.py)
 
-Per sample:
-    ukf.update(z, u_prev)   # correct with the sensors
-    u = MPC(ukf.x)          # control from the estimate
-    ukf.predict(u)          # prior for the next sample
+Per sample (driven by simulator/control_loop.py):
+    ukf.predict(u_prev)       # prior, with the torque applied since the last sample
+    ukf.update(z, u_prev)     # correct with the sensors
+    u = controller(ukf.states)
 """
 
 import casadi as ca
 import numpy as np
 from filterpy.common import Q_discrete_white_noise
-from filterpy.kalman import MerweScaledSigmaPoints, UnscentedKalmanFilter
+from filterpy.kalman import MerweScaledSigmaPoints
+from filterpy.kalman import UnscentedKalmanFilter as FilterpyUKF
 
 from ..models import sensors
 from ..models.configuration import CONFIG
@@ -51,12 +52,13 @@ class UnscentedKalmanFilter:
         sensor_settings=CONFIG.sensors,
     ):
         n = N_STATES
+        self.settings = settings
         self._step = make_discrete_step(dt, settings.rk4_substeps)
 
         points = MerweScaledSigmaPoints(
             n=n, alpha=settings.alpha, beta=settings.beta, kappa=settings.kappa
         )
-        self.ukf = UnscentedKalmanFilter(
+        self.ukf = FilterpyUKF(
             dim_x=n,
             dim_z=sensors.N_MEAS,
             dt=dt,
@@ -95,19 +97,19 @@ class UnscentedKalmanFilter:
     def _fx(self, x, dt, u):
         return np.array(self._step(x, u)).ravel()
 
-    def predict(self, u):
-        """Prior for the next sample, given the torque u applied over it."""
-        self.ukf.predict(u=np.asarray(u, float))
+    def predict(self, torque):
+        """Prior for the next sample, given the torque applied over it."""
+        self.ukf.predict(u=np.asarray(torque, float))
         self._prior_is_fresh = True
 
-    def update(self, z, u, which=("imu", "encoders")):
-        """Correct with measurement z.
+    def update(self, measurement, torque, which=("imu", "encoders")):
+        """Correct with a measurement.
 
-        u     : torque being applied when z was measured (the accelerometer
-                depends on it)
-        which : sensors that reported; z holds only their rows, in the
-                order imu, encoders. Lets the IMU and encoders run at
-                different rates.
+        torque : torque being applied when the measurement was taken (the
+                 accelerometer depends on it)
+        which  : sensors that reported; the measurement holds only their
+                 rows, in the order imu, encoders. Lets the IMU and encoders
+                 run at different rates.
         """
         rows = np.r_[tuple(sensors.SENSOR_ROWS[w] for w in which)]
         R = self.R_full[np.ix_(rows, rows)]
@@ -115,17 +117,25 @@ class UnscentedKalmanFilter:
         def hx(x, u):
             return sensors.h(x, u)[rows]
 
-        # FilterPy re-uses the sigma points from predict(). If a second update
+        # FilterPy reuses the sigma points from predict(). If a second update
         # follows without a predict, redraw them around the current estimate.
         if not self._prior_is_fresh:
             self.ukf.sigmas_f = self.ukf.points_fn.sigma_points(self.ukf.x, self.ukf.P)
 
-        self.ukf.update(np.asarray(z, float), R=R, hx=hx, u=np.asarray(u, float))
+        self.ukf.update(
+            np.asarray(measurement, float), R=R, hx=hx, u=np.asarray(torque, float)
+        )
         self._prior_is_fresh = False
         self.nis = float(self.ukf.y @ self.ukf.SI @ self.ukf.y)
 
+    def reset_to(self, states):
+        """Restart the filter from this estimate, with the initial uncertainty."""
+        self.ukf.x = np.asarray(states, float).copy()
+        self.ukf.P = np.diag(np.square(self.settings.initial_std))
+        self._prior_is_fresh = False
+
     @property
-    def x(self):
+    def states(self):
         """State estimate, same ordering as MODEL.x."""
         return self.ukf.x.copy()
 

@@ -8,10 +8,11 @@ changed mid-simulation. For tuning you simply build a new one instead
 Role in the system
 ------------------
 Built in main.py and passed down to the parts that need it:
-    - models/dynmaics.py   SegwayParams -> equations of motion
-    - models/sensors.py           SensorSettings -> measurement noise, encoder quantization
-    - observers/ukf.py        UKFSettings (+ SegwayParams, SensorSettings for its model)
-    - controllers/linear_MPC.py    MPCSettings (+ SegwayParams for the OCP model)
+    - models/dynamics.py           SegwayParameters -> equations of motion
+    - models/sensors.py            SensorSettings -> measurement noise, encoder quantization
+    - observers/ukf.py             UKFSettings (+ SensorSettings for its model)
+    - controllers/linear_mpc.py    MPCSettings
+    - renderer/                    RendererSettings (+ SegwayParameters for the 3D model)
 
 Contains no logic, nothing here imports from the rest of the project.
 
@@ -35,7 +36,7 @@ class SegwayParameters:
     beam_mass: float = 0.5  # [kg]
     wheel_mass: float = 0.2  # [kg]
     axle_length: float = 0.1  # [Meters]
-    beam_lenght: float = 0.25  # [Meters]
+    beam_length: float = 0.25  # [Meters]
     wheel_radius: float = 0.05  # [Meters]
 
 

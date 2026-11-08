@@ -8,7 +8,7 @@ Sensor models for the segway: IMU + wheel encoders.
 Measurement vector:
     z = [a_x, a_z, gyro_pitch, gyro_yaw, enc_l, enc_r]
 
-State and input follow Models/segway_dynamics.py:
+State and input follow models/dynamics.py:
     x = [s, ds, theta, dtheta, psi, dpsi],   u = [tau_l, tau_r]
 """
 

@@ -19,7 +19,7 @@ whole app. Other imgui windows float on top of it.
 
 Frames
 ------
-Right-handed, x forward, y left, z up. Same conventions as models/segway_model.py:
+Right-handed, x forward, y left, z up. Same conventions as models/dynamics.py:
     yaw    rotation about z, positive = counter-clockwise (turning left)
     pitch  rotation about y, positive = leaning forward (+z tips towards +x)
 
@@ -45,7 +45,7 @@ import numpy as np
 import pyvista as pv
 from pathlib import Path
 from typing import Callable
-from ..models.configuration import CONFIG, SegwayParameters
+from ..models import CONFIG, SegwayParameters
 from .imgui_compat import CompatibleImguiPlotter
 from imgui_bundle import hello_imgui, imgui, immapp
 
@@ -190,7 +190,10 @@ class Renderer:
             hello_imgui.DefaultImGuiWindowType.no_default_window
         )
 
-        immapp.run(runner_params=runner_params)  # blocks until the window is closed
+        immapp.run(
+            runner_params=runner_params,
+            add_ons_params=immapp.AddOnsParams(with_implot=True),
+        )  # blocks until the window is closed
 
     def draw_viewport(self) -> None:
         """The 3D scene as a borderless imgui window covering the whole app window."""

@@ -11,3 +11,4 @@ class Controller(Protocol):
 class ControllerType(Enum):
     LINEAR_MPC = 0
     LQR = 1
+    NONLINEAR_MPC = 2

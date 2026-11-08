@@ -1,179 +1,66 @@
 """
-The simulated segway with its control system in the loop.
+The segway's brain: an observer and a controller, each swappable at runtime.
 
-This replaces the hardware: a "true" plant is integrated forward, the
-sensors read it, the UKF estimates the state and the MPC chooses the torque.
-Nothing in here knows about rendering, so the same loop can be driven by the
-3D viewer, a GUI or a plain for-loop.
-
-Two clocks run side by side:
-    physics_dt : how often the true plant is integrated. Small, so the motion
-                 looks smooth and disturbances can land between controller
-                 updates.
-    control_dt : how often the sensors are read, the UKF updates and the MPC
-                 solves (CONFIG.mpc.T). Between updates the torque is held
-                 constant (zero-order hold), exactly like on real hardware.
+Role in the system
+------------------
+Owned by a Segway, which calls update() once per control sample with the
+latest measurement. Holds every controller and observer the segway can use,
+but only one of each is active. Knows nothing about the true state, the
+plant or rendering.
 """
-
-import time
-from dataclasses import dataclass, field
 
 import numpy as np
 
-from ..controllers.linear_MPC import segway_integrator, segway_ocp, segway_solver
-from ..models.configuration import CONFIG
-from ..models.sensors import measure
-from ..observers.UKF import UnscentedKalmanFilter
-
-# Index of each entry in the state vector [s, s_dot, yaw, yaw_rate, pitch, pitch_rate]
-S, S_DOT, YAW, YAW_RATE, PITCH, PITCH_RATE = range(6)
+from ..controllers import Controller, ControllerType
+from ..observers import Observer, ObserverType
 
 
-@dataclass
-class History:
-    """Everything that happened at each controller update, for plotting later."""
-
-    time: list = field(default_factory=list)
-    true_state: list = field(default_factory=list)
-    estimated_state: list = field(default_factory=list)
-    torque: list = field(default_factory=list)
-
-    def record(self, time, true_state, estimated_state, torque) -> None:
-        self.time.append(time)
-        self.true_state.append(true_state.copy())
-        self.estimated_state.append(estimated_state.copy())
-        self.torque.append(torque.copy())
-
-    def as_arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        return (
-            np.array(self.time),
-            np.array(self.true_state),
-            np.array(self.estimated_state),
-            np.array(self.torque),
-        )
-
-
-class ClosedLoop:
-    """True plant + sensors + UKF + MPC, advanced one physics step at a time."""
+class ControlLoop:
+    """Observer + controller, run once per control sample."""
 
     def __init__(
         self,
-        initial_state: np.ndarray,
-        physics_dt: float = 0.01,
-        use_ukf: bool = True,
-        seed: int = 0,
+        controllers: dict[ControllerType, Controller],
+        observers: dict[ObserverType, Observer],
+        active_controller: ControllerType,
+        active_observer: ObserverType,
     ) -> None:
-        self.control_dt = CONFIG.mpc.T
-        self.physics_dt = physics_dt
-        self.physics_steps_per_control = round(self.control_dt / physics_dt)
-        if not np.isclose(self.physics_steps_per_control * physics_dt, self.control_dt):
-            raise ValueError("control_dt must be a whole multiple of physics_dt")
+        self.controllers = controllers
+        self.observers = observers
+        self.active_controller = active_controller
+        self.active_observer = active_observer
+        self.first_update = True
 
-        ocp = segway_ocp()
-        self.mpc = segway_solver(ocp)
-        self.plant = segway_integrator(ocp)
-        self.plant.set(
-            "T", physics_dt
-        )  # the plant takes small steps, not a full MPC step
+    @property
+    def controller(self) -> Controller:
+        return self.controllers[self.active_controller]
 
-        self.ukf = UnscentedKalmanFilter(
-            dt=self.control_dt
-        )  # starts at x_hat = 0, it must find the true state
-        self.use_ukf = use_ukf
-        self.rng = np.random.default_rng(seed)
+    @property
+    def observer(self) -> Observer:
+        return self.observers[self.active_observer]
 
-        self.state = np.asarray(initial_state, dtype=float).copy()  # the TRUE state
-        self.position = np.zeros(
-            2
-        )  # [x, y] on the floor, integrated from s_dot and yaw
-        self.torque = np.zeros(2)  # [tau_l, tau_r], held between controller updates
-        self.time = 0.0
-        self.physics_step_count = 0
+    # ============================== Switching ============================
+    def switch_controller_to(self, chosen_controller: ControllerType) -> None:
+        self.controllers[chosen_controller].reset()
+        self.active_controller = chosen_controller
 
-        self.motors_enabled = True
-        self.solver_status = 0
-        self.history = History()
+    def switch_observer_to(self, chosen_observer: ObserverType) -> None:
+        """The new observer starts from the old estimate, with its initial uncertainty."""
+        self.observers[chosen_observer].reset_to(self.observer.states.copy())
+        self.active_observer = chosen_observer
 
     # ============================== Running ==============================
-    def step(self) -> None:
-        """Advance the world by one physics step."""
-        if self.physics_step_count % self.physics_steps_per_control == 0:
-            self.update_controller()
+    def update(self, measurement: np.ndarray, applied_torque: np.ndarray) -> np.ndarray:
+        """Estimate the state from the latest measurement and return the commanded torque."""
+        if not self.first_update:  # nothing to predict at t = 0
+            self.observer.predict(applied_torque)
+        self.first_update = False
+        self.observer.update(measurement, applied_torque)
+        return self.controller.compute(self.observer.states)
 
-        self.integrate_plant()
-        self.physics_step_count += 1
-        self.time += self.physics_dt
-
-    # ============================ Disturbances ===========================
-    # Called from the keyboard now, from the GUI later.
-    def push(self, pitch_rate_change: float) -> None:
-        """A sudden hit on the body: instantly changes how fast it is tipping."""
-        self.state[PITCH_RATE] += pitch_rate_change
-
-    def tilt_to(self, pitch: float) -> None:
-        """Teleport the body to a given pitch angle."""
-        self.state[PITCH] = pitch
-
-    def set_motors_enabled(self, enabled: bool) -> None:
-        """With the motors off the controller still estimates, but applies no torque."""
-        self.motors_enabled = enabled
-
-    # ============================== Internals ============================
-    def update_controller(self) -> None:
-        """One control cycle: read sensors -> UKF correct -> MPC solve -> UKF predict."""
-        measurement = measure(self.state, self.torque, self.rng)
-        self.ukf.update(measurement, self.torque)
-
-        state_for_mpc = self.ukf.x if self.use_ukf else self.state
-
-        if self.motors_enabled:
-            self.mpc.set(0, "lbx", state_for_mpc)
-            self.mpc.set(0, "ubx", state_for_mpc)
-            self.solver_status = self.mpc.solve()
-            new_torque = self.mpc.get(0, "u")
-        else:
-            new_torque = np.zeros(2)
-
-        self.history.record(self.time, self.state, self.ukf.x, new_torque)
-
-        self.ukf.predict(new_torque)
-        self.torque = new_torque
-
-    def integrate_plant(self) -> None:
-        """Move the true segway forward by physics_dt with the current torque."""
-        self.state = self.plant.simulate(x=self.state, u=self.torque)
-
-        speed, heading = self.state[S_DOT], self.state[YAW]
-        self.position += (
-            speed * np.array([np.cos(heading), np.sin(heading)]) * self.physics_dt
-        )
-
-
-class RealTimePacer:
-    """
-    Turns wall-clock time into a whole number of fixed physics steps.
-
-    The physics always uses the same dt (stable, repeatable), while the window
-    redraws whenever it can. If a frame is late, the next one simply takes
-    more physics steps to catch up.
-    """
-
-    MAX_CATCH_UP = (
-        0.1  # [s] never try to catch up more than this (e.g. after dragging the window)
-    )
-
-    def __init__(self, physics_dt: float, time_scale: float = 1.0) -> None:
-        self.physics_dt = physics_dt
-        self.time_scale = time_scale  # 0 = paused, 0.5 = slow motion, 1 = real time
-        self.last_wall_time = time.perf_counter()
-        self.unsimulated_time = 0.0
-
-    def steps_due(self) -> int:
-        now = time.perf_counter()
-        elapsed = min(now - self.last_wall_time, self.MAX_CATCH_UP)
-        self.last_wall_time = now
-
-        self.unsimulated_time += elapsed * self.time_scale
-        steps = int(self.unsimulated_time / self.physics_dt)
-        self.unsimulated_time -= steps * self.physics_dt
-        return steps
+    # ============================== Utiltiy ==============================
+    def get_names(self) -> list[str]:
+        names: list[str] = []
+        for controller in self.controllers:
+            names.append(controller.name)
+        return names

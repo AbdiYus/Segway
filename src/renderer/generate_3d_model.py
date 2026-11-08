@@ -14,7 +14,7 @@ from pathlib import Path
 from ..models.configuration import CONFIG
 
 AXLE_LENGTH = CONFIG.segway.axle_length
-BEAM_LENGTH = CONFIG.segway.beam_lenght
+BEAM_LENGTH = CONFIG.segway.beam_length
 WHEEL_RADIUS = CONFIG.segway.wheel_radius
 
 WHEEL_WIDTH = 0.25 * WHEEL_RADIUS

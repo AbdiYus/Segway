@@ -3,11 +3,13 @@ from ..models.configuration import CONFIG
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 import numpy as np
 import scipy as sci
+from pathlib import Path
 
 from acados_template.acados_sim import AcadosSim
 from acados_template.acados_sim_solver import AcadosSimSolver
 
-MODEL.plant
+
+BUILD_DIR = Path(__file__).parent / "acados_build"
 
 
 def segway_ode() -> AcadosModel:
@@ -57,7 +59,7 @@ def segway_ocp(Q: np.ndarray, R: np.ndarray) -> AcadosOcp:
     ocp.cost.cost_type = "LINEAR_LS"  # NOTE: is default, but to be explicit
     ocp.cost.Vx = np.vstack([np.eye(nx), np.zeros((nu, nx))])
     ocp.cost.Vu = np.vstack([np.zeros((nx, nu)), np.eye(nu)])
-    ocp.cost.W = ca.diagcat(Q, R).full()
+    ocp.cost.W = sci.linalg.block_diag(Q, R)
     ocp.cost.yref = np.zeros(nx + nu)
 
     # Terminal cost
@@ -74,10 +76,12 @@ def segway_ocp(Q: np.ndarray, R: np.ndarray) -> AcadosOcp:
     ocp.constraints.idxbx = np.array([4])  # [psi / pitch]
     ocp.constraints.x0 = np.zeros(nx)
 
-    # Input constriants
+    # Input constraints
     ocp.constraints.lbu = -CONFIG.mpc.torque_constraint * np.ones(nu)
     ocp.constraints.ubu = CONFIG.mpc.torque_constraint * np.ones(nu)
     ocp.constraints.idxbu = np.array([0, 1])  # [torque_left, torque_right]
+
+    ocp.code_export_directory = str(BUILD_DIR / "c_generated_code")
 
     return ocp
 
@@ -89,7 +93,10 @@ def segway_solver(ocp) -> AcadosOcpSolver:
     ocp.solver_options.integrator_type = "IRK"
     ocp.solver_options.nlp_solver_type = "SQP"
 
-    return AcadosOcpSolver(ocp)
+    return AcadosOcpSolver(
+        ocp,
+        json_file=str(BUILD_DIR / "acados_ocp_nonlinear.json"),
+    )
 
 
 def segway_integrator(ocp: AcadosOcp) -> AcadosSimSolver:
@@ -100,18 +107,15 @@ def segway_integrator(ocp: AcadosOcp) -> AcadosSimSolver:
     return integrator
 
 
-def plant(x, u):
-    return MODEL.plant(x, u)
-
-
-class LinearMPC:
+class NonlinearMPC:
     def __init__(self, Q: np.ndarray, R: np.ndarray) -> None:
         self.solver = segway_solver(segway_ocp(Q, R))
 
-    def compute(self, state_estiamtion):
-        self.solver.set(0, "lbx", state_estiamtion)
-        self.solver.set(0, "ubx", state_estiamtion)
+    def compute(self, state_estimate: np.ndarray) -> np.ndarray:
+        self.solver.set(0, "lbx", state_estimate)
+        self.solver.set(0, "ubx", state_estimate)
+        self.solver.solve()
         return self.solver.get(0, "u")
 
-    def reset(self):
+    def reset(self) -> None:
         self.solver.reset()

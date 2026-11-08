@@ -1,76 +1,83 @@
-from ..controllers.base import Controller, ControllerType
-from ..observers.base import Observer, ObserverType
-from .utility import History, Pose, StateDefitions
-from ..models.sensors import measure
+"""
+One simulated segway: the true plant, its sensors and motors.
+
+Role in the system
+------------------
+Replaces the hardware. The true state is integrated forward, the sensors
+read it with noise, and the ControlLoop (the brain) turns the measurement
+into a torque. Between control samples the torque is held constant
+(zero-order hold), like on real hardware.
+
+Two clocks run side by side:
+    physics_dt : how often the true plant is integrated. Small, so the motion
+                 looks smooth and disturbances can land between controller
+                 updates.
+    control_dt : how often the sensors are read, the observer updates and the
+                 controller runs. Must be a whole multiple of physics_dt.
+
+Owned by a World, which owns the time. Knows nothing about other segways
+or rendering.
+"""
+
 import numpy as np
 
-
-class ControlLoop:
-    """The segway's brain: an observer and a controller, each swappable at runtime."""
-
-    def __init__(
-        self,
-        controllers: dict[ControllerType, Controller],
-        observers: dict[ObserverType, Observer],
-        active_controller: ControllerType,
-        active_observer: ObserverType,
-    ) -> None:
-        self.controllers = controllers
-        self.observers = observers
-        self.active_controller = active_controller
-        self.active_observer = active_observer
-        self.first_update = True
-
-    @property
-    def controller(self) -> Controller:
-        return self.controllers[self.active_controller]
-
-    @property
-    def observer(self) -> Observer:
-        return self.observers[self.active_observer]
-
-    def switch_controller_to(self, chosen_controller: ControllerType) -> None:
-        self.controllers[chosen_controller].reset()
-        self.active_controller = chosen_controller
-
-    # NOTE: This switch could cause issues with the covariance matrix P...
-    def switch_observer_to(self, chosen_observer: ObserverType) -> None:
-        self.observers[chosen_observer].reset_to(self.observer.states.copy())
-        self.active_observer = chosen_observer
-
-    def update(self, measurement: np.ndarray, applied_torque: np.ndarray) -> np.ndarray:
-        """Estimate the state from the latest measurement and return the commanded torque."""
-        if not self.first_update:  # nothing to predict at t = 0
-            self.observer.predict(applied_torque)
-        self.first_update = False
-        self.observer.update(measurement, applied_torque)
-        return self.controller.compute(self.observer.states)
+from ..controllers.nonlinear_mpc import segway_integrator, segway_ocp
 
 
+from ..models import measure, CONFIG
+from ..controllers import (
+    Controller,
+    ControllerType,
+    LQR,
+    LinearMPC,
+    NonlinearMPC,
+)
+from ..observers import ObserverType, Observer, UnscentedKalmanFilter
+from .utility import History, Pose, StateIndex
+from .control_loop import ControlLoop
+
+# ================================ Tuning =========================================
+
+# Weights on [s, ds, theta, dtheta, psi, dpsi] and [tau_l, tau_r]
+Q_LQR = np.diag([1.0, 0.1, 1.0, 0.1, 100.0, 1.0])
+R_LQR = np.diag([0.01, 0.01])
+
+Q_LINEAR_MPC = np.diag([0.1, 0.1, 1.0, 0.1, 100.0, 1.0])
+R_LINEAR_MPC = np.diag([0.01, 0.01])
+
+Q_NONLINEAR_MPC = np.diag([0.1, 0.1, 1.0, 0.1, 100.0, 1.0])
+R_NONLINEAR_MPC = np.diag([0.01, 0.01])
+
+
+# ================================ Segway =========================================
 class Segway:
-    """One simulated segway: true plant, sensors and motors, steered by a ControlLoop."""
+    """True plant, sensors and motors, steered by a ControlLoop."""
 
     def __init__(
         self,
-        control_loop: ControlLoop,
-        plant,  # AcadosSimSolver, already set to physics_dt
+        controller_type: ControllerType,
+        observer_type: ObserverType,
         initial_state: np.ndarray,
         physics_dt: float,
-        control_dt: float,
         position: tuple[float, float] = (0.0, 0.0),
         seed: int = 0,
     ) -> None:
-        self.control_loop = control_loop
-        self.plant = plant
+        self.control_loop = self.create_controller_and_observer(
+            controller_type, observer_type
+        )
+        self.plant = segway_integrator(segway_ocp(Q_NONLINEAR_MPC, R_NONLINEAR_MPC))
+        self.plant.set("T", physics_dt)
         self.physics_dt = physics_dt
-        self.states_defitions = StateDefitions
 
+        control_dt = CONFIG.mpc.T
         self.steps_per_control = round(control_dt / physics_dt)
         if not np.isclose(self.steps_per_control * physics_dt, control_dt):
             raise ValueError("control_dt must be a whole multiple of physics_dt")
 
         self.rng = np.random.default_rng(seed)
-        self.state: np.ndarray = np.asarray(initial_state, dtype=float).copy()
+        self.state: np.ndarray = np.asarray(
+            initial_state, dtype=float
+        ).copy()  # TRUE state
         self.position = np.array(position, dtype=float)  # [x, y] on the floor
         self.torque = np.zeros(2)  # applied torque, held between controller updates
         self.step_count = 0
@@ -90,19 +97,46 @@ class Segway:
         return Pose(
             x,
             y,
-            self.state[StateDefitions.YAW],
-            self.state[StateDefitions.PITCH],
-            self.state[StateDefitions.S],
+            self.state[StateIndex.YAW],
+            self.state[StateIndex.PITCH],
+            self.state[StateIndex.S],
         )
 
     # ============================ Disturbances ===========================
     def push(self, pitch_rate_change: float) -> None:
-        self.state[StateDefitions.PITCH_RATE] += pitch_rate_change
+        """A sudden hit on the body: instantly changes how fast it is tipping."""
+        self.state[StateIndex.PITCH_RATE] += pitch_rate_change
 
     def tilt_to(self, pitch: float) -> None:
-        self.state[StateDefitions.PITCH] = pitch
+        """Teleport the body to a given pitch angle."""
+        self.state[StateIndex.PITCH] = pitch
 
     # ============================== Internals ============================
+    def create_controller_and_observer(
+        self,
+        controller_type: ControllerType,
+        observer_type: ObserverType,
+    ) -> ControlLoop:
+        controllers: dict[ControllerType, Controller] = {
+            ControllerType.LQR: LQR(Q=Q_LQR, R=R_LQR),
+            ControllerType.LINEAR_MPC: LinearMPC(Q=Q_LINEAR_MPC, R=R_LINEAR_MPC),
+            ControllerType.NONLINEAR_MPC: NonlinearMPC(
+                Q=Q_NONLINEAR_MPC, R=R_NONLINEAR_MPC
+            ),
+        }
+
+        observers: dict[ObserverType, Observer] = {
+            ObserverType.UNSCENTED_KALMAN_FILTER: UnscentedKalmanFilter(
+                dt=CONFIG.mpc.T
+            ),
+        }
+        return ControlLoop(
+            controllers,
+            observers,
+            active_controller=controller_type,
+            active_observer=observer_type,
+        )
+
     def update_controller(self, time: float) -> None:
         measurement = measure(self.state, self.torque, self.rng)
         self.torque = self.control_loop.update(measurement, applied_torque=self.torque)
@@ -112,10 +146,7 @@ class Segway:
 
     def integrate_plant(self) -> None:
         self.state = np.asarray(self.plant.simulate(x=self.state, u=self.torque))
-        speed, heading = (
-            self.state[StateDefitions.S_DOT],
-            self.state[StateDefitions.YAW],
-        )
+        speed, heading = self.state[StateIndex.S_DOT], self.state[StateIndex.YAW]
         self.position += (
             speed * np.array([np.cos(heading), np.sin(heading)]) * self.physics_dt
         )
