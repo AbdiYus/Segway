@@ -519,3 +519,37 @@ MODEL = Model(
     A=np.array(A),
     B=np.array(B),
 )
+
+# ================================ X and Y coordinates ===============================
+px_ca, py_ca = ca.SX.sym("x"), ca.SX.sym("y")
+px_dot, py_dot = ca.SX.sym("x_dot"), ca.SX.sym("y_dot")
+
+x_xy = ca.vertcat(x, px_ca, py_ca)
+xdot_xy = ca.vertcat(xdot, px_dot, py_dot)
+
+f_expl_xy = ca.vertcat(
+    f_expl,
+    x[1] * ca.cos(x[2]),
+    x[1] * ca.sin(x[2]),
+)
+
+f_impl_xy = xdot_xy - f_expl_xy
+
+MODEL_XY = Model(
+    x=x_xy,
+    u=u,
+    dx=xdot_xy,
+    plant_implicit_acados=f_impl_xy,
+    plant_explicit_acados=f_expl_xy,
+    plant=ca.Function("f_xy", [x_xy, u], [f_expl_xy]),
+    A=np.array(
+        ca.Function("A", [x_xy, u], [ca.jacobian(f_expl_xy, x_xy)])(
+            np.zeros(8), np.zeros(2)
+        )
+    ),
+    B=np.array(
+        ca.Function("B", [x_xy, u], [ca.jacobian(f_expl_xy, u)])(
+            np.zeros(8), np.zeros(2)
+        )
+    ),
+)

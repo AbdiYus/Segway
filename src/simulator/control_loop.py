@@ -30,6 +30,7 @@ class ControlLoop:
         self.active_controller = active_controller
         self.active_observer = active_observer
         self.first_update = True
+        self.goal = np.zeros(2)
 
     @property
     def controller(self) -> Controller:
@@ -57,6 +58,15 @@ class ControlLoop:
         self.first_update = False
         self.observer.update(measurement, applied_torque)
         return self.controller.compute(self.observer.states)
+
+    def set_goal(self, x: float, y: float) -> None:
+        self.goal[:] = (x, y)
+        self._push_goal()
+
+    def _push_goal(self) -> None:
+        controller = self.controllers[self.active_controller]
+        if hasattr(controller, "set_target"):
+            controller.set_target(*self.goal)
 
     # ============================== Utiltiy ==============================
     def get_names(self) -> list[str]:

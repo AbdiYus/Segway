@@ -45,7 +45,7 @@ R_LQR = np.diag([0.01, 0.01])
 Q_LINEAR_MPC = np.diag([0.1, 0.1, 1.0, 0.1, 100.0, 1.0])
 R_LINEAR_MPC = np.diag([0.01, 0.01])
 
-Q_NONLINEAR_MPC = np.diag([0.1, 0.1, 1.0, 0.1, 100.0, 1.0])
+Q_NONLINEAR_MPC = np.diag([0.1, 0.1, 1.0, 0.1, 100.0, 1.0, 1.0, 1.0])
 R_NONLINEAR_MPC = np.diag([0.01, 0.01])
 
 
@@ -82,6 +82,7 @@ class Segway:
         self.torque = np.zeros(2)  # applied torque, held between controller updates
         self.step_count = 0
         self.history = History()
+        self.position = np.zeros(2)
 
     # ============================== Running ==============================
     def step(self, time: float) -> None:
@@ -100,6 +101,20 @@ class Segway:
             self.state[StateIndex.YAW],
             self.state[StateIndex.PITCH],
             self.state[StateIndex.S],
+        )
+
+    def set_goal(self, x: float, y: float) -> None:
+        self.control_loop.set_goal(x, y)
+
+    @property
+    def goal(self) -> np.ndarray:
+        return self.control_loop.goal
+
+    def integrate_plant(self) -> None:
+        self.state = np.asarray(self.plant.simulate(x=self.state, u=self.torque))
+        s_dot, theta = self.state[StateIndex.S_DOT], self.state[StateIndex.YAW]
+        self.position += (
+            self.physics_dt * s_dot * np.array([np.cos(theta), np.sin(theta)])
         )
 
     # ============================ Disturbances ===========================
@@ -144,9 +159,9 @@ class Segway:
             time, self.state, self.control_loop.observer.states, self.torque
         )
 
-    def integrate_plant(self) -> None:
-        self.state = np.asarray(self.plant.simulate(x=self.state, u=self.torque))
-        speed, heading = self.state[StateIndex.S_DOT], self.state[StateIndex.YAW]
-        self.position += (
-            speed * np.array([np.cos(heading), np.sin(heading)]) * self.physics_dt
-        )
+    # def integrate_plant(self) -> None:
+    #     self.state = np.asarray(self.plant.simulate(x=self.state, u=self.torque))
+    #     speed, heading = self.state[StateIndex.S_DOT], self.state[StateIndex.YAW]
+    #     self.position += (
+    #         speed * np.array([np.cos(heading), np.sin(heading)]) * self.physics_dt
+    #     )

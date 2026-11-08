@@ -38,6 +38,10 @@ class ControlPanel:
                 self.draw_plots()
                 imgui.end_tab_item()
 
+            if imgui.begin_tab_item("Set Goal")[0]:
+                self.draw_set_goal()
+                imgui.end_tab_item()
+
             # if imgui.begin_tab_item("Tuning")[0]:
             #     self.draw_tuning()
             #     imgui.end_tab_item()
@@ -153,6 +157,48 @@ class ControlPanel:
     #
     #     if changed:
     #         loop.switch_controller_to()
+    def draw_set_goal(self) -> None:
+        segway = self.segway
+        x, y = segway.position
+        theta = segway.state[StateIndex.YAW]
+        goal_x, goal_y = segway.goal
+
+        if implot.begin_plot("Map", size=(500, 500), flags=implot.Flags_.equal):
+            implot.setup_axes("x [m]", "y [m]")
+            implot.setup_axes(
+                "x [m]",
+                "y [m]",
+                implot.AxisFlags_.lock,
+                implot.AxisFlags_.lock,  # no pan/zoom
+            )
+            implot.setup_axes_limits(-2, 2, -2, 2, imgui.Cond_.always)
+
+            implot.plot_scatter(
+                "segway",
+                np.array([x]),
+                np.array([y]),
+                spec=implot.Spec(marker=implot.Marker_.circle, marker_size=8),
+            )
+            implot.plot_line(
+                "heading",
+                np.array([x, x + 0.5 * np.cos(theta)]),
+                np.array([y, y + 0.5 * np.sin(theta)]),
+            )
+            implot.plot_scatter(
+                "goal",
+                np.array([goal_x]),
+                np.array([goal_y]),
+                spec=implot.Spec(marker=implot.Marker_.cross, marker_size=10),
+            )
+
+            if implot.is_plot_hovered() and imgui.is_mouse_double_clicked(0):
+                p = implot.get_plot_mouse_pos()
+                segway.set_goal(p.x, p.y)
+
+            implot.end_plot()
+
+        imgui.text(f"goal: ({goal_x:+.2f}, {goal_y:+.2f}) m")
+        imgui.text("double-click on the map to set a new goal")
 
     def draw_disturbances(self) -> None:
         # Seen from the default camera, +x (forward) is to the right on screen
