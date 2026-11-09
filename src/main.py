@@ -28,9 +28,6 @@ def main() -> None:
         position=(0, 0),
     )
 
-    # controller = segway.control_loop.controllers[ControllerType.NONLINEAR_MPC]
-    # controller.set_target(1, 1)
-
     # FIXME: When adding other segwways, it generates the controllers code again.
     # segway_2 = Segway(
     #     ControllerType.LINEAR_MPC,
