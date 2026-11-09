@@ -11,6 +11,16 @@
 
 ## Install
 
+[Acados](https://docs.acados.org/installation/index.html) install first. Then:
+
 ```python
 pip install -r requirements.txt 
+```
+
+(NOTE: when git pulling remember to do `git pull --recursive`)
+
+## Running the app
+
+```
+python -m src.main 
 ```
