@@ -48,6 +48,10 @@ R_LINEAR_MPC = np.diag([0.01, 0.01])
 Q_NONLINEAR_MPC = np.diag([0.1, 0.1, 1.0, 0.1, 100.0, 1.0, 1.0, 1.0])
 R_NONLINEAR_MPC = np.diag([0.01, 0.01])
 
+# The model has no floor: past this pitch the body would swing through the
+# ground, so the segway counts as fallen and stops.
+FALL_PITCH = np.radians(90)  # [rad]
+
 
 # ================================ Segway =========================================
 class Segway:
@@ -75,9 +79,9 @@ class Segway:
             raise ValueError("control_dt must be a whole multiple of physics_dt")
 
         self.rng = np.random.default_rng(seed)
-        self.state: np.ndarray = np.asarray(
-            initial_state, dtype=float
-        ).copy()  # TRUE state
+        self.initial_state = np.asarray(initial_state, dtype=float).copy()
+        self.state: np.ndarray = self.initial_state.copy()  # TRUE state
+        self.fallen = False
         self.position = np.array(position, dtype=float)  # [x, y] on the floor
         self.torque = np.zeros(2)  # applied torque, held between controller updates
         self.step_count = 0
@@ -87,10 +91,23 @@ class Segway:
     # ============================== Running ==============================
     def step(self, time: float) -> None:
         """Advance by one physics step. The world owns the clock."""
+        if self.fallen:
+            return
         if self.step_count % self.steps_per_control == 0:
             self.update_controller(time)
         self.integrate_plant()
         self.step_count += 1
+        if abs(self.state[StateIndex.PITCH]) >= FALL_PITCH:
+            self.fall_over()
+
+    def reset(self) -> None:
+        """Stand the segway back up at the origin, as at the start."""
+        self.state = self.initial_state.copy()
+        self.position[:] = 0.0
+        self.torque[:] = 0.0
+        self.step_count = 0
+        self.fallen = False
+        self.control_loop.reset(self.initial_state)
 
     @property
     def pose(self) -> Pose:
@@ -127,6 +144,13 @@ class Segway:
         self.state[StateIndex.PITCH] = pitch
 
     # ============================== Internals ============================
+    def fall_over(self) -> None:
+        """Lie the body on the floor and stop: motors off, nothing moving."""
+        self.fallen = True
+        self.torque[:] = 0.0
+        self.state[StateIndex.PITCH] = np.sign(self.state[StateIndex.PITCH]) * FALL_PITCH
+        self.state[[StateIndex.S_DOT, StateIndex.YAW_RATE, StateIndex.PITCH_RATE]] = 0.0
+
     def create_controller_and_observer(
         self,
         controller_type: ControllerType,

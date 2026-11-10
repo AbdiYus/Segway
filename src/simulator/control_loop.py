@@ -50,6 +50,12 @@ class ControlLoop:
         self.observers[chosen_observer].reset_to(self.observer.states.copy())
         self.active_observer = chosen_observer
 
+    def reset(self, states: np.ndarray) -> None:
+        """Start over from this state, as if just switched on."""
+        self.controller.reset()
+        self.observer.reset_to(states.copy())
+        self.first_update = True
+
     # ============================== Running ==============================
     def update(self, measurement: np.ndarray, applied_torque: np.ndarray) -> np.ndarray:
         """Estimate the state from the latest measurement and return the commanded torque."""

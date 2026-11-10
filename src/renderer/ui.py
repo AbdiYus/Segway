@@ -63,6 +63,7 @@ class ControlPanel:
 
         rows = [
             ("time", f"{self.world.time:.2f} s"),
+            ("status", "FALLEN, press Reset" if segway.fallen else "balancing"),
             ("controller", loop.active_controller.name),
             ("observer", loop.active_observer.name),
             ("pitch (true)", f"{np.degrees(true_state[StateIndex.PITCH]):+.1f} deg"),
@@ -218,6 +219,9 @@ class ControlPanel:
         _, self.tilt_angle_deg = imgui.slider_float(
             "tilt [deg]", self.tilt_angle_deg, -30.0, 30.0
         )
+
+        if imgui.button("Reset"):
+            self.segway.reset()
 
     def draw_settings(self) -> None:
         _, self.pacer.time_scale = imgui.slider_float(
