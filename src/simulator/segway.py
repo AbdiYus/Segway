@@ -45,7 +45,8 @@ R_LQR = np.diag([0.01, 0.01])
 Q_LINEAR_MPC = np.diag([0.1, 0.1, 1.0, 0.1, 100.0, 1.0])
 R_LINEAR_MPC = np.diag([0.01, 0.01])
 
-Q_NONLINEAR_MPC = np.diag([0.1, 0.1, 1.0, 0.1, 100.0, 1.0, 1.0, 1.0])
+# s and theta get no weight: they would fight the goal
+Q_NONLINEAR_MPC = np.diag([0.0, 0.1, 0.0, 1.0, 100.0, 100.0, 1.0, 1.0])
 R_NONLINEAR_MPC = np.diag([0.01, 0.01])
 
 # The model has no floor: past this pitch the body would swing through the
@@ -148,7 +149,9 @@ class Segway:
         """Lie the body on the floor and stop: motors off, nothing moving."""
         self.fallen = True
         self.torque[:] = 0.0
-        self.state[StateIndex.PITCH] = np.sign(self.state[StateIndex.PITCH]) * FALL_PITCH
+        self.state[StateIndex.PITCH] = (
+            np.sign(self.state[StateIndex.PITCH]) * FALL_PITCH
+        )
         self.state[[StateIndex.S_DOT, StateIndex.YAW_RATE, StateIndex.PITCH_RATE]] = 0.0
 
     def create_controller_and_observer(
@@ -182,10 +185,3 @@ class Segway:
         self.history.record(
             time, self.state, self.control_loop.observer.states, self.torque
         )
-
-    # def integrate_plant(self) -> None:
-    #     self.state = np.asarray(self.plant.simulate(x=self.state, u=self.torque))
-    #     speed, heading = self.state[StateIndex.S_DOT], self.state[StateIndex.YAW]
-    #     self.position += (
-    #         speed * np.array([np.cos(heading), np.sin(heading)]) * self.physics_dt
-    #     )

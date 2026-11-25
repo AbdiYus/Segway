@@ -172,7 +172,7 @@ class ControlPanel:
                 implot.AxisFlags_.lock,
                 implot.AxisFlags_.lock,  # no pan/zoom
             )
-            implot.setup_axes_limits(-2, 2, -2, 2, imgui.Cond_.always)
+            implot.setup_axes_limits(-5, 5, -5, 5, imgui.Cond_.always)
 
             implot.plot_scatter(
                 "segway",

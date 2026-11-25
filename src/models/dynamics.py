@@ -436,7 +436,11 @@ equations = [
     equation_pitch,
 ]
 
+
 M, b = sp.linear_eq_to_matrix(equations, *accelerations)
+
+b[0] += m_beam * (BEAM_LENGTH / 2) * sp.sin(pitch) * yaw_rate**2
+b[1] -= m_beam * (BEAM_LENGTH / 2) * sp.sin(pitch) * s_dot * yaw_rate
 
 print("\nSecond order ODE's:")
 pretty_print_second_order_ode(M, b, t, s, yaw, pitch)
