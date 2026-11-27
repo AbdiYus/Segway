@@ -6,7 +6,7 @@ run per noise seed). Every pitch trajectory is saved, so the scoring
 (ex1_analysis.py) can be redone with another convergence band without
 rerunning the simulations.
 
-    python -m experiments.ex1_sensitivity [--controller NONLINEAR_MPC] [--seeds 10]
+    python -m experiments.ex1_sensitivity [--controller NONLINEAR_MPC] [--seeds 3] [--T 0.02 --horizon 20] [--workers 8]
 """
 
 import argparse
@@ -17,7 +17,16 @@ import numpy as np
 
 from src.controllers import ControllerType
 
-from .runner import PARAMETERS, ExperimentSegway, run_scenario
+from .parallel import Job, Result, default_workers, run_parallel
+from .runner import (
+    PARAMETERS,
+    PHYSICS_DT,
+    T_END,
+    ExperimentSegway,
+    override_mpc,
+    run_scenario,
+    settings_tag,
+)
 
 RESULTS_DIR = Path(__file__).parent / "results"
 LEVEL = 0.10  # relative error
@@ -40,26 +49,41 @@ def config_key(errors: dict[str, float]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--controller", default="NONLINEAR_MPC", choices=[c.name for c in ControllerType])
-    parser.add_argument("--seeds", type=int, default=10, help="noise seeds for the UKF runs (0 = true state only)")
+    parser.add_argument("--seeds", type=int, default=3, help="noise seeds for the UKF runs (0 = true state only)")
+    parser.add_argument("--T", type=float, help="MPC/UKF sample time [s] (default: configuration.py)")
+    parser.add_argument("--horizon", type=int, help="MPC horizon in steps (default: configuration.py)")
+    parser.add_argument("--workers", type=int, default=default_workers(),
+                        help="parallel processes (1 = run in this process)")
     args = parser.parse_args()
 
-    segway = ExperimentSegway(ControllerType[args.controller])
-    out = RESULTS_DIR / f"ex1_{args.controller.lower()}.npz"
+    override_mpc(args.T, args.horizon)
+    out = RESULTS_DIR / f"ex1_{args.controller.lower()}_{settings_tag()}.npz"
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    data, t0 = {}, time.time()
-    for errors in configurations():
-        key = config_key(errors)
-        for feedback, seeds in (("true", [0]), ("ukf", range(args.seeds))):
-            for seed in seeds:
-                run = run_scenario(segway, errors, seed, true_state_feedback=feedback == "true")
-                data[f"{key}|{feedback}|{seed}"] = run.pitch
-                data[f"{key}|{feedback}|{seed}|fallen"] = run.fallen
-                data[f"{key}|{feedback}|{seed}|fallbacks"] = run.fallbacks
-                data["time"] = run.time
-        print(f"{key:>20s} done  ({time.time() - t0:.0f} s)", flush=True)
+    jobs = [
+        Job(f"{config_key(errors)}|{feedback}|{seed}", errors, seed, feedback == "true")
+        for errors in configurations()
+        for feedback, seeds in (("true", [0]), ("ukf", range(args.seeds)))
+        for seed in seeds
+    ]
+    t0 = time.time()
+    if args.workers > 1:
+        results = run_parallel(jobs, args.controller, args.T, args.horizon, args.workers)
+    else:
+        segway = ExperimentSegway(ControllerType[args.controller])
+        results = []
+        for i, job in enumerate(jobs, 1):
+            run = run_scenario(segway, job.errors, job.seed, job.true_state)
+            results.append(Result(job.key, run.pitch, run.fallen, run.fallbacks))
+            print(f"{i:4d}/{len(jobs)}  {job.key:30s} ({time.time() - t0:.0f} s)", flush=True)
 
+    data = {"time": (np.arange(round(T_END / PHYSICS_DT)) + 1) * PHYSICS_DT}
+    for r in results:
+        data[r.key] = r.pitch
+        data[f"{r.key}|fallen"] = r.fallen
+        data[f"{r.key}|fallbacks"] = r.fallbacks
     np.savez_compressed(out, **data)
+    print(f"{len(jobs)} runs in {time.time() - t0:.0f} s")
     print(f"saved {out}")
 
 

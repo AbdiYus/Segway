@@ -15,6 +15,7 @@ t = 2 s, simulate 20 s. Sensor noise comes from a fixed seed per run, so every
 configuration sees the same noise for the same seed.
 """
 
+import os
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
@@ -54,6 +55,39 @@ LABELS = {  # for plots, the report's naming
     "beam_length": r"$L_2$",
     "wheel_radius": r"$h$",
 }
+
+
+def override_mpc(T: float | None = None, horizon: int | None = None) -> None:
+    """Change the MPC sample time and horizon for this process, without editing
+    configuration.py. Must be called BEFORE any controller or observer is built:
+    they read CONFIG.mpc when they are constructed. CONFIG is frozen, so the
+    shared object is updated in place, which every module sees."""
+    changes = {k: v for k, v in (("T", T), ("horizon", horizon)) if v is not None}
+    if changes:
+        object.__setattr__(CONFIG, "mpc", replace(CONFIG.mpc, **changes))
+    steps = CONFIG.mpc.T / PHYSICS_DT
+    if not np.isclose(steps, round(steps)):
+        raise ValueError(f"T = {CONFIG.mpc.T} s must be a whole multiple of {PHYSICS_DT} s")
+
+
+def use_build_dir(path: Path) -> None:
+    """Generate and compile every acados solver in `path` instead of the shared
+    folders, so parallel worker processes never overwrite each other's code.
+    Also makes `path` the working directory, where acados puts codegen_* folders.
+    Must be called BEFORE any solver is built."""
+    global BUILD_DIR
+    from src.controllers import linear_mpc, nonlinear_mpc
+
+    path.mkdir(parents=True, exist_ok=True)
+    BUILD_DIR = path
+    nonlinear_mpc.BUILD_DIR = path
+    linear_mpc.BUILD_DIR = path
+    os.chdir(path)
+
+
+def settings_tag() -> str:
+    """e.g. 'T20ms_N20', used in result file names."""
+    return f"T{round(CONFIG.mpc.T * 1000)}ms_N{CONFIG.mpc.horizon}"
 
 
 def perturbed(errors: dict[str, float]) -> SegwayParameters:

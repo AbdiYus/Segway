@@ -5,7 +5,7 @@ from the push until |pitch| stays inside +-band. For the UKF, r is computed per
 noise seed (against the nominal run with the same seed) and the median over the
 seeds is reported, with the interquartile range as its spread.
 
-    python -m experiments.ex1_analysis [--controller NONLINEAR_MPC] [--band 1.0]
+    python -m experiments.ex1_analysis [--controller NONLINEAR_MPC] [--band 1.0] [--T 0.02 --horizon 20]
 """
 
 import argparse
@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .ex1_sensitivity import LEVEL, RESULTS_DIR
-from .runner import LABELS, PARAMETERS, PUSH_TIME, Run, convergence_time
+from .runner import LABELS, PARAMETERS, PUSH_TIME, Run, convergence_time, override_mpc, settings_tag
 
 # Reference palette (dataviz skill), slots 1-2, and text inks
 COLOR_MINUS, COLOR_PLUS = "#2a78d6", "#eb6834"
@@ -23,7 +23,7 @@ INK, INK_2, GRID, SURFACE = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
 
 
 def load(controller: str):
-    data = np.load(RESULTS_DIR / f"ex1_{controller.lower()}.npz")
+    data = np.load(RESULTS_DIR / f"ex1_{controller.lower()}_{settings_tag()}.npz")
     time = data["time"]
     runs = {}
     for key in data.files:
@@ -45,15 +45,18 @@ def score(runs, band_deg: float):
     out = {}
     for config, feedback in {(c, f) for c, f, _ in runs}:
         seeds = sorted(s for c, f, s in runs if (c, f) == (config, feedback))
-        r = np.array([tc[(config, feedback, s)] / tc[("nominal", feedback, s)] for s in seeds])
+        base = np.array([tc[("nominal", feedback, s)] for s in seeds])
+        num = np.array([tc[(config, feedback, s)] for s in seeds])
+        with np.errstate(divide="ignore", invalid="ignore"):  # baseline t_c = 0 -> undefined
+            r = np.where(base > 0, num / np.where(base > 0, base, 1), np.nan)
         ok = r[np.isfinite(r)]
         q = np.percentile(ok, [50, 25, 75]) if ok.size else [np.nan] * 3
         out[(config, feedback)] = (*q, ok.size, r.size)
     return out, tc
 
 
-def tornado(scores, controller: str, band_deg: float) -> None:
-    present = {fb for _, fb in scores}
+def tornado(scores, controller: str, band_deg: float, only: str | None = None) -> None:
+    present = {fb for _, fb in scores} if only is None else {only}
     feedbacks = [(fb, t) for fb, t in (("true", "True state fed back"), ("ukf", "UKF in the loop"))
                  if fb in present]
     keys = {p: (f"{p}{-LEVEL:+.0%}", f"{p}{+LEVEL:+.0%}") for p in PARAMETERS}
@@ -107,14 +110,18 @@ def tornado(scores, controller: str, band_deg: float) -> None:
     axes[-1].legend(loc="lower right", frameon=False, fontsize=8, labelcolor=INK_2)
     fig.tight_layout()
     for ext in ("pdf", "png"):
-        fig.savefig(RESULTS_DIR / f"ex1_tornado_{controller.lower()}.{ext}", dpi=200, facecolor=SURFACE)
+        fig.savefig(RESULTS_DIR / f"ex1_tornado_{controller.lower()}_{settings_tag()}.{ext}", dpi=200, facecolor=SURFACE)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--controller", default="NONLINEAR_MPC")
     parser.add_argument("--band", type=float, default=1.0, help="convergence band [deg]")
+    parser.add_argument("--feedback", choices=["true", "ukf"], help="plot only this case (default: all run)")
+    parser.add_argument("--T", type=float, help="sample time the runs used [s]")
+    parser.add_argument("--horizon", type=int, help="horizon the runs used [steps]")
     args = parser.parse_args()
+    override_mpc(args.T, args.horizon)  # only selects the result file
 
     runs = load(args.controller)
     scores, tc = score(runs, args.band)
@@ -131,13 +138,13 @@ def main() -> None:
                          sum(runs[(config, fb, s)].fallbacks for s in seeds)])
     header = ["config", "feedback", "t_c median [s]", "r median", "r q25", "r q75",
               "converged", "fallen", "nmpc fallbacks"]
-    with open(RESULTS_DIR / f"ex1_scores_{args.controller.lower()}.csv", "w", newline="") as f:
+    with open(RESULTS_DIR / f"ex1_scores_{args.controller.lower()}_{settings_tag()}.csv", "w", newline="") as f:
         csv.writer(f).writerows([header] + rows)
     widths = [22, 9, 15, 9, 7, 7, 10, 7, 15]
     for row in [header] + rows:
         print("".join(str(v).ljust(w) for v, w in zip(row, widths)))
 
-    tornado(scores, args.controller, args.band)
+    tornado(scores, args.controller, args.band, args.feedback)
     print(f"band = +-{args.band} deg, push at {PUSH_TIME} s; figure and CSV in {RESULTS_DIR}")
 
 
