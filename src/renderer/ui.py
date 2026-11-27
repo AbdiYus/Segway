@@ -211,6 +211,8 @@ class ControlPanel:
                 spec=implot.Spec(marker=implot.Marker_.cross, marker_size=10),
             )
 
+            self.draw_controller_plan()
+
             if implot.is_plot_hovered() and imgui.is_mouse_double_clicked(0):
                 p = implot.get_plot_mouse_pos()
                 segway.set_goal(p.x, p.y)
@@ -219,6 +221,30 @@ class ControlPanel:
 
         imgui.text(f"goal: ({goal_x:+.2f}, {goal_y:+.2f}) m")
         imgui.text("double-click on the map to set a new goal")
+
+    def draw_controller_plan(self) -> None:
+        controller = self.segway.control_loop.controller
+
+        if hasattr(controller, "get_planned_path"):
+            plan = controller.get_planned_path()
+            if len(plan) > 0:
+                plan_x = np.ascontiguousarray(plan[:, 0])
+                plan_y = np.ascontiguousarray(plan[:, 1])
+                implot.plot_line(
+                    "MPC plan",
+                    plan_x,
+                    plan_y,
+                    spec=implot.Spec(marker=implot.Marker_.circle, marker_size=3),
+                )
+
+        if hasattr(controller, "get_position"):
+            believed_x, believed_y = controller.get_position()
+            implot.plot_scatter(
+                "believed",
+                np.array([believed_x]),
+                np.array([believed_y]),
+                spec=implot.Spec(marker=implot.Marker_.square, marker_size=6),
+            )
 
     def draw_disturbances(self) -> None:
         # Seen from the default camera, +x (forward) is to the right on screen

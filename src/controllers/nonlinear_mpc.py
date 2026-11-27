@@ -65,6 +65,8 @@ def segway_ode() -> AcadosModel:
 # Their dynamics don't depend on s, theta, x or y (flat ground), so this is a
 # closed, controllable subsystem.
 BAL_IDX = [1, 3, 4, 5]
+XY_IDX = [6, 7]
+
 S_IDX = 0
 YAW_IDX = 2
 N_MODEL = 6  # states of the linearized model: s, ds, theta, dtheta, psi, dpsi
@@ -160,17 +162,18 @@ def segway_ocp(Q: np.ndarray, R: np.ndarray) -> AcadosOcp:
     ocp.cost.yref_e = np.zeros(nx)
 
     # ---------------- State constraints (soft) ----------------
-    # 1 = ds, 4 = psi, 5 = dpsi
-    ocp.constraints.idxbx = np.array([1, 4, 5])
+    # 1 = ds, 4 = psi, 5 = dpsi, 3=dtheta
+    ocp.constraints.idxbx = np.array([1, 4, 5, 3])
     ocp.constraints.ubx = np.array(
         [
             CONFIG.mpc.displacement_rate_constraint,
             CONFIG.mpc.pitch_constraint,
             CONFIG.mpc.pitch_rate_constraint,
+            CONFIG.mpc.yaw_rate_constraint,
         ]
     )
     ocp.constraints.lbx = -ocp.constraints.ubx
-    ocp.constraints.idxsbx = np.arange(3)
+    ocp.constraints.idxsbx = np.arange(4)
     ocp.constraints.x0 = np.zeros(nx)
 
     # ---------------- Input constraints (hard) ----------------
@@ -179,7 +182,7 @@ def segway_ocp(Q: np.ndarray, R: np.ndarray) -> AcadosOcp:
     ocp.constraints.lbu = -ocp.constraints.ubu
 
     # ---------------- Slack penalties ----------------
-    ns = 3
+    ns = 4
     w = CONFIG.mpc.slack_weight
     ocp.cost.Zl = ocp.cost.Zu = w * np.ones(ns)
     ocp.cost.zl = ocp.cost.zu = 10 * w * np.ones(ns)
@@ -220,6 +223,7 @@ class NonlinearMPC:
         self.dt = CONFIG.mpc.T  # same dt as the UKF / control loop
         self.nx, self.nu = 8, 2
         self.position = np.zeros(2)  # dead-reckoned [x, y]
+        self.plan = np.empty((0, 2))
         self.set_target(*target)
 
         # Backup controller: a balancing LQR, used when the solver fails, so a
@@ -244,14 +248,25 @@ class NonlinearMPC:
     def get_position(self) -> np.ndarray:
         return self.position.copy()
 
+    def get_planned_path(self) -> np.ndarray:
+        return self.plan
+
     def set_references(self, s: float, theta: float) -> None:
         """Polar guidance: the goal as references on s and theta (x, y get no weight)."""
         s_ref, theta_ref = polar_reference(
             self.target, self.position, s, theta, MAX_STEP
         )
+
+        diff = self.target - self.position
+        dist = np.linalg.norm(diff)
+        xy_ref = (
+            self.target if dist <= MAX_STEP else self.position + diff / dist * MAX_STEP
+        )
+
         yref = np.zeros(self.nx + self.nu)
         yref[S_IDX] = s_ref
         yref[YAW_IDX] = theta_ref
+        yref[XY_IDX] = xy_ref
         for k in range(self.N):
             self.solver.set(k, "yref", yref)
         self.solver.set(self.N, "yref", yref[: self.nx])
@@ -287,16 +302,23 @@ class NonlinearMPC:
         self.set_references(s, theta)
 
         status = self.solver.solve()
+
         if status == 0:
             self.cold = False
             u = self.solver.get(0, "u")
+            self.plan = np.array(
+                [self.solver.get(k, "x")[6:8] for k in range(self.N + 1)]
+            )
         else:  # QP failed: just balance, and start the next solve from standing still
             self.cold = True
-            self.solver.reset()  # also clears multipliers and slacks of the failed solve
+            self.solver.reset()
+            self.plan = np.empty((0, 2))  # no valid plan to show
             u = -self.K_bal @ state_estimate[BAL_IDX]
+
         return np.clip(u, -self.u_max, self.u_max)
 
     def reset(self) -> None:
         self.solver.reset()
         self.position[:] = 0.0
+        self.plan = np.empty((0, 2))
         self.cold = True

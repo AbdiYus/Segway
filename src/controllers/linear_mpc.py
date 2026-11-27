@@ -132,16 +132,45 @@ def linear_segway_ocp(Q: np.ndarray, R: np.ndarray) -> AcadosOcp:
     ocp.cost.W_e = P
     ocp.cost.yref_e = np.zeros(nx)
 
-    # State constraints
-    ocp.constraints.lbx = np.array([-CONFIG.mpc.pitch_constraint])
-    ocp.constraints.ubx = np.array([CONFIG.mpc.pitch_constraint])
-    ocp.constraints.idxbx = np.array([4])  # [psi / pitch]
+    # ---------------- State constraints (soft) ----------------
+    # 1 = ds, 4 = psi, 5 = dpsi, 3=dtheta
+    ocp.constraints.idxbx = np.array([1, 4, 5, 3])
+    ocp.constraints.ubx = np.array(
+        [
+            CONFIG.mpc.displacement_rate_constraint,
+            CONFIG.mpc.pitch_constraint,
+            CONFIG.mpc.pitch_rate_constraint,
+            CONFIG.mpc.yaw_rate_constraint,
+        ]
+    )
+    ocp.constraints.lbx = -ocp.constraints.ubx
+    ocp.constraints.idxsbx = np.arange(4)
     ocp.constraints.x0 = np.zeros(nx)
 
-    # Input constraints
-    ocp.constraints.lbu = -CONFIG.mpc.torque_constraint * np.ones(nu)
+    # ---------------- Input constraints (hard) ----------------
+    ocp.constraints.idxbu = np.array([0, 1])
     ocp.constraints.ubu = CONFIG.mpc.torque_constraint * np.ones(nu)
-    ocp.constraints.idxbu = np.array([0, 1])  # [torque_left, torque_right]
+    ocp.constraints.lbu = -ocp.constraints.ubu
+
+    # ---------------- Slack penalties ----------------
+    ns = 4
+    w = CONFIG.mpc.slack_weight
+    ocp.cost.Zl = ocp.cost.Zu = w * np.ones(ns)
+    ocp.cost.zl = ocp.cost.zu = 10 * w * np.ones(ns)
+
+    # State constraints
+    ocp.constraints.idxbx = np.array([1, 4, 5, 3])
+    ocp.constraints.ubx = np.array(
+        [
+            CONFIG.mpc.displacement_rate_constraint,
+            CONFIG.mpc.pitch_constraint,
+            CONFIG.mpc.pitch_rate_constraint,
+            CONFIG.mpc.yaw_rate_constraint,
+        ]
+    )
+    ocp.constraints.lbx = -ocp.constraints.ubx
+    ocp.constraints.idxsbx = np.arange(4)
+    ocp.constraints.x0 = np.zeros(nx)
 
     # Solver options
     ocp.solver_options.integrator_type = (
