@@ -89,85 +89,60 @@ class ControlPanel:
             imgui.end_table()
 
     def draw_plots(self) -> None:
+        """Every constrained quantity over the last seconds, with its limit."""
         history = self.history.as_arrays()
         time = history[HistoryIndex.TIME]
-        true_pitch = history[HistoryIndex.TRUE_PITCH]
-        estimated_pitch = history[HistoryIndex.ESTIMATED_PITCH]
+        true_state = history[HistoryIndex.TRUE_STATE]
+        estimated_state = history[HistoryIndex.ESTIMATED_STATE]
         torque = history[HistoryIndex.TORQUE]
-        torque_limit = CONFIG.mpc.torque_constraint
-        pitch_limit = np.rad2deg(CONFIG.mpc.pitch_constraint)
-
         if len(time) == 0:
-            print("ERR: there does not exists any history")
+            imgui.text("no data yet")
             return
 
-        implot.set_next_axis_to_fit(implot.ImAxis_.y1)
+        mpc = CONFIG.mpc
+        deg = np.degrees
 
-        if implot.begin_plot("Pitch", size=(500, 250)):
-            implot.setup_axes("time [s]", "pitch [deg]")
+        def true_and_estimated(index: StateIndex, scale=lambda v: v) -> list:
+            return [
+                ("true", scale(true_state[:, index])),
+                ("estimated", scale(estimated_state[:, index])),
+            ]
 
-            implot.setup_axis_limits(
-                implot.ImAxis_.x1,
-                time[-1] - 10,
-                time[-1],
-                imgui.Cond_.always,
-            )
-
-            implot.setup_axis_limits(
-                implot.ImAxis_.y1,
-                -1.1 * pitch_limit,
-                1.1 * pitch_limit,
-                imgui.Cond_.always,
-            )
-
-            implot.plot_line("true", time, np.array(true_pitch))
-            implot.plot_line("estimated", time, np.array(estimated_pitch))
-
-            # Red limit lines
-            implot.plot_inf_lines(
-                "limit",
-                np.array([-pitch_limit, pitch_limit]),
-                spec=implot.Spec(
-                    line_color=imgui.ImVec4(1.0, 0.3, 0.3, 1.0),
-                    line_weight=1.5,
-                    flags=implot.InfLinesFlags_.horizontal,
-                ),
-            )
-            implot.end_plot()
-
-        imgui.separator()
-
-        if implot.begin_plot("Torque", size=(500, 250)):
-            implot.setup_axes("time [s]", "torque [Nm]")
-
-            implot.setup_axis_limits(
-                implot.ImAxis_.x1,
-                time[-1] - 10,
-                time[-1],
-                imgui.Cond_.always,
-            )
-
-            implot.setup_axis_limits(
-                implot.ImAxis_.y1,
-                -1.1 * torque_limit,
-                1.1 * torque_limit,
-                imgui.Cond_.always,
-            )
-
-            implot.plot_line("left", time, np.ascontiguousarray(torque[:, 0]))
-            implot.plot_line("right", time, np.ascontiguousarray(torque[:, 1]))
-
-            # Red limit lines
-            implot.plot_inf_lines(
-                "limit",
-                np.array([-torque_limit, torque_limit]),
-                spec=implot.Spec(
-                    line_color=imgui.ImVec4(1.0, 0.3, 0.3, 1.0),
-                    line_weight=1.5,
-                    flags=implot.InfLinesFlags_.horizontal,
-                ),
-            )
-            implot.end_plot()
+        plot_with_limit(
+            "Pitch",
+            "pitch [deg]",
+            time,
+            true_and_estimated(StateIndex.PITCH, deg),
+            deg(mpc.pitch_constraint),
+        )
+        plot_with_limit(
+            "Pitch rate",
+            "pitch rate [deg/s]",
+            time,
+            true_and_estimated(StateIndex.PITCH_RATE, deg),
+            deg(mpc.pitch_rate_constraint),
+        )
+        plot_with_limit(
+            "Speed",
+            "speed [m/s]",
+            time,
+            true_and_estimated(StateIndex.S_DOT),
+            mpc.displacement_rate_constraint,
+        )
+        plot_with_limit(
+            "Yaw rate",
+            "yaw rate [deg/s]",
+            time,
+            true_and_estimated(StateIndex.YAW_RATE, deg),
+            deg(mpc.yaw_rate_constraint),
+        )
+        plot_with_limit(
+            "Torque",
+            "torque [Nm]",
+            time,
+            [("left", torque[:, 0]), ("right", torque[:, 1])],
+            mpc.torque_constraint,
+        )
 
     # def draw_tuning(self) -> None:
     #     loop = self.segway.control_loop
@@ -211,6 +186,8 @@ class ControlPanel:
                 spec=implot.Spec(marker=implot.Marker_.cross, marker_size=10),
             )
 
+            self.draw_controller_plan()
+
             if implot.is_plot_hovered() and imgui.is_mouse_double_clicked(0):
                 p = implot.get_plot_mouse_pos()
                 segway.set_goal(p.x, p.y)
@@ -219,6 +196,30 @@ class ControlPanel:
 
         imgui.text(f"goal: ({goal_x:+.2f}, {goal_y:+.2f}) m")
         imgui.text("double-click on the map to set a new goal")
+
+    def draw_controller_plan(self) -> None:
+        controller = self.segway.control_loop.controller
+
+        if hasattr(controller, "get_planned_path"):
+            plan = controller.get_planned_path()
+            if len(plan) > 0:
+                plan_x = np.ascontiguousarray(plan[:, 0])
+                plan_y = np.ascontiguousarray(plan[:, 1])
+                implot.plot_line(
+                    "MPC plan",
+                    plan_x,
+                    plan_y,
+                    spec=implot.Spec(marker=implot.Marker_.circle, marker_size=3),
+                )
+
+        if hasattr(controller, "get_position"):
+            believed_x, believed_y = controller.get_position()
+            implot.plot_scatter(
+                "believed",
+                np.array([believed_x]),
+                np.array([believed_y]),
+                spec=implot.Spec(marker=implot.Marker_.square, marker_size=6),
+            )
 
     def draw_disturbances(self) -> None:
         # Seen from the default camera, +x (forward) is to the right on screen
@@ -247,3 +248,54 @@ class ControlPanel:
             "speed", self.pacer.time_scale, 0.0, 2.0
         )
         imgui.text("speed 0 = paused, 0.5 = slow motion")
+
+
+# ================================ Plot helpers ===================================
+PLOT_SIZE = (500, 180)  # [px] each time plot
+TIME_WINDOW = 10.0  # [s] how much history the time plots show
+LIMIT_COLOR = (1.0, 0.3, 0.3, 1.0)  # red limit lines
+
+
+def symmetric_y_range(values: list[np.ndarray], limit: float) -> float:
+    """Half-height of the y axis: the limit with a margin, or more if the data goes past it.
+
+    Soft constraints can be exceeded, so the axis grows instead of hiding a violation.
+    """
+    largest = max((np.max(np.abs(v)) for v in values if len(v) > 0), default=0.0)
+    return 1.1 * max(limit, largest)
+
+
+def plot_with_limit(
+    title: str,
+    y_label: str,
+    time: np.ndarray,
+    series: list[tuple[str, np.ndarray]],
+    limit: float,
+) -> None:
+    """One time plot of the last TIME_WINDOW seconds, with red lines at +-limit."""
+    visible = time >= time[-1] - TIME_WINDOW
+    half_height = symmetric_y_range([values[visible] for _, values in series], limit)
+
+    if not implot.begin_plot(title, size=PLOT_SIZE):
+        return
+    implot.setup_axes("time [s]", y_label)
+    implot.setup_axis_limits(
+        implot.ImAxis_.x1, time[-1] - TIME_WINDOW, time[-1], imgui.Cond_.always
+    )
+    implot.setup_axis_limits(
+        implot.ImAxis_.y1, -half_height, half_height, imgui.Cond_.always
+    )
+
+    for label, values in series:
+        # implot needs contiguous 1D arrays; column slices of a 2D array are not
+        implot.plot_line(label, time, np.ascontiguousarray(values))
+    implot.plot_inf_lines(
+        "limit",
+        np.array([-limit, limit]),
+        spec=implot.Spec(
+            line_color=imgui.ImVec4(*LIMIT_COLOR),
+            line_weight=1.5,
+            flags=implot.InfLinesFlags_.horizontal,
+        ),
+    )
+    implot.end_plot()

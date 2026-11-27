@@ -37,16 +37,17 @@ class SegwayParameters:
     wheel_mass: float = 0.064  # [kg]
     axle_length: float = 0.08  # [Meters]
     beam_length: float = 0.12  # [Meters]
-    wheel_radius: float = 0.0178  # [Meters]
+    wheel_radius: float = 0.02  # [Meters]
 
 
 @dataclass(frozen=True)
 class MPCSettings:
-    T: float = 0.1  # [seconds]
+    T: float = 0.02  # [seconds]
     horizon: int = 20  # [MPC window]
     torque_constraint: float = 0.08  # [Nm]
-    pitch_constraint: float = np.radians(5)  # [rad]
-    pitch_rate_constraint: float = np.radians(10)  # [rad/s]
+    pitch_constraint: float = np.radians(15)  # [rad]
+    pitch_rate_constraint: float = np.radians(45)  # [rad/s]
+    yaw_rate_constraint: float = np.radians(90)  # [rad/s]
     displacement_rate_constraint: float = 1.0  # [m/s]
     slack_weight: float = 1e4
 

@@ -44,6 +44,7 @@ class ControlLoop:
     def switch_controller_to(self, chosen_controller: ControllerType) -> None:
         self.controllers[chosen_controller].reset()
         self.active_controller = chosen_controller
+        self._push_goal()
 
     def switch_observer_to(self, chosen_observer: ObserverType) -> None:
         """The new observer starts from the old estimate, with its initial uncertainty."""
