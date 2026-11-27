@@ -35,7 +35,7 @@ class SegwayParameters:
     axle_mass: float = 0.02  # [kg]
     beam_mass: float = 0.05  # [kg]
     wheel_mass: float = 0.064  # [kg]
-    axle_length: float = 0.06  # [Meters]
+    axle_length: float = 0.08  # [Meters]
     beam_length: float = 0.12  # [Meters]
     wheel_radius: float = 0.0178  # [Meters]
 

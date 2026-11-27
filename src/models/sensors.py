@@ -25,12 +25,17 @@ SENSOR_ROWS = {"imu": slice(0, 4), "encoders": slice(4, 6)}
 N_MEAS = 6
 
 
-def state_derivative(x, u):
-    """x_dot from the Lagrange model, as a flat numpy array."""
-    return np.array(MODEL.plant(x, u)).ravel()
+def state_derivative(x, u, f=None):
+    """x_dot from the Lagrange model, as a flat numpy array.
+
+    f : x_dot = f(x, u) to use instead of the nominal model, e.g. the true
+        plant in a robustness experiment (None = nominal MODEL.plant).
+    """
+    f = MODEL.plant if f is None else f
+    return np.array(f(x, u)).ravel()
 
 
-def h_imu(x, u, sensors=CONFIG.sensors):
+def h_imu(x, u, sensors=CONFIG.sensors, f=None):
     """IMU model -> [a_x, a_z, gyro_pitch, gyro_yaw].
 
     IMU axes, fixed to the beam:
@@ -46,7 +51,7 @@ def h_imu(x, u, sensors=CONFIG.sensors):
     axes. Flip a_x if the real IMU is mounted the other way.
     """
     psi, dpsi, dtheta = x[PSI], x[DPSI], x[DTHETA]
-    xdot = state_derivative(x, u)
+    xdot = state_derivative(x, u, f)
     s_dd, psi_dd = xdot[DS], xdot[DPSI]
     c, sn, h = np.cos(psi), np.sin(psi), sensors.imu_height
 
@@ -84,11 +89,15 @@ def encoder_resolution(sensors=CONFIG.sensors):
     return 2 * np.pi / sensors.encoder_slots
 
 
-def measure(x, u, rng, sensors=CONFIG.sensors):
-    """Simulated sensor readings from the TRUE state: noise + quantisation."""
-    imu = h_imu(x, u) + rng.normal(
+def measure(x, u, rng, sensors=CONFIG.sensors, f=None, params=CONFIG.segway):
+    """Simulated sensor readings from the TRUE state: noise + quantisation.
+
+    f, params : true dynamics and true parameters of the robot, when they
+                differ from the nominal model (defaults: nominal).
+    """
+    imu = h_imu(x, u, sensors, f) + rng.normal(
         0, [sensors.accel_std, sensors.accel_std, sensors.gyro_std, sensors.gyro_std]
     )
     delta = encoder_resolution(sensors)
-    enc = np.round(h_encoders(x) / delta) * delta  # encoders count whole slots
+    enc = np.round(h_encoders(x, params) / delta) * delta  # encoders count whole slots
     return np.concatenate([imu, enc])
