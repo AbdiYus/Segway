@@ -32,12 +32,12 @@ import numpy as np
 
 @dataclass(frozen=True)
 class SegwayParameters:
-    axle_mass: float = 0.3  # [kg]
-    beam_mass: float = 0.5  # [kg]
-    wheel_mass: float = 0.2  # [kg]
-    axle_length: float = 0.1  # [Meters]
-    beam_length: float = 0.25  # [Meters]
-    wheel_radius: float = 0.05  # [Meters]
+    axle_mass: float = 0.02  # [kg]
+    beam_mass: float = 0.05  # [kg]
+    wheel_mass: float = 0.064  # [kg]
+    axle_length: float = 0.06  # [Meters]
+    beam_length: float = 0.12  # [Meters]
+    wheel_radius: float = 0.0178  # [Meters]
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,8 @@ Run from the project root with:  python -m src.main
 
 import numpy as np
 
-from .simulator import Segway, StateIndex, Simulator
+from .simulator.simulator import Simulator
+from .simulator import Segway, StateIndex
 from .controllers import ControllerType
 from .observers import ObserverType
 
