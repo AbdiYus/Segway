@@ -51,8 +51,8 @@ LABELS = {  # for plots, the report's naming
     "axle_mass": r"$m_{\mathrm{axle}}$",
     "beam_mass": r"$m_{\mathrm{beam}}$",
     "wheel_mass": r"$m_{\mathrm{wheel}}$",
-    "axle_length": r"$L_1$",
-    "beam_length": r"$L_2$",
+    "axle_length": r"$L_{\mathrm{axle}}$",
+    "beam_length": r"$L_{\mathrm{beam}}$",
     "wheel_radius": r"$h$",
 }
 
@@ -77,11 +77,13 @@ def use_build_dir(path: Path) -> None:
     Must be called BEFORE any solver is built."""
     global BUILD_DIR
     from src.controllers import linear_mpc, nonlinear_mpc
+    from src.simulator import plant
 
     path.mkdir(parents=True, exist_ok=True)
     BUILD_DIR = path
     nonlinear_mpc.BUILD_DIR = path
     linear_mpc.BUILD_DIR = path
+    plant.BUILD_DIR = path
     os.chdir(path)
 
 

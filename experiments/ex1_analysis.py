@@ -87,12 +87,17 @@ def tornado(scores, controller: str, band_deg: float, only: str | None = None) -
             if fb == "ukf":  # spread over the noise seeds
                 ax.errorbar(val, y + offset, xerr=[(med - lo) * 100, (hi - med) * 100],
                             fmt="none", ecolor=INK_2, elinewidth=1, capsize=2, zorder=3)
-            for yi, v, m in zip(y + offset, val, med):
+            # Label outside the bar AND its error bar, on the side the bar points to
+            ends_hi = (hi - 1) * 100 if fb == "ukf" else val
+            ends_lo = (lo - 1) * 100 if fb == "ukf" else val
+            for yi, v, m, e_hi, e_lo in zip(y + offset, val, med, ends_hi, ends_lo):
                 if not np.isfinite(m):
                     ax.text(0, yi, " did not converge", va="center", fontsize=7, color=INK_2)
                 elif abs(v) >= 0.05:
-                    pad = 0.012 * lim * (1 if v > 0 else -1)
-                    ax.text(v + pad, yi, f"{v:+.1f}", va="center", ha="left" if v > 0 else "right",
+                    right = v > 0
+                    end = max(v, e_hi) if right else min(v, e_lo)
+                    pad = 0.012 * lim * (1 if right else -1)
+                    ax.text(end + pad, yi, f"{v:+.1f}", va="center", ha="left" if right else "right",
                             fontsize=7, color=INK_2)
         for yi, p in zip(y, order):
             if all(abs(scores[(k, fb)][0] - 1) < 5e-4 for k in keys[p]):
@@ -110,7 +115,7 @@ def tornado(scores, controller: str, band_deg: float, only: str | None = None) -
     axes[-1].legend(loc="lower right", frameon=False, fontsize=8, labelcolor=INK_2)
     fig.tight_layout()
     for ext in ("pdf", "png"):
-        fig.savefig(RESULTS_DIR / f"ex1_tornado_{controller.lower()}_{settings_tag()}.{ext}", dpi=200, facecolor=SURFACE)
+        fig.savefig(RESULTS_DIR / f"ex1_tornado_{controller.lower()}_{settings_tag()}_band{band_deg:g}{'_' + only if only else ''}.{ext}", dpi=200, facecolor=SURFACE)
 
 
 def main() -> None:
@@ -138,7 +143,7 @@ def main() -> None:
                          sum(runs[(config, fb, s)].fallbacks for s in seeds)])
     header = ["config", "feedback", "t_c median [s]", "r median", "r q25", "r q75",
               "converged", "fallen", "nmpc fallbacks"]
-    with open(RESULTS_DIR / f"ex1_scores_{args.controller.lower()}_{settings_tag()}.csv", "w", newline="") as f:
+    with open(RESULTS_DIR / f"ex1_scores_{args.controller.lower()}_{settings_tag()}_band{args.band:g}.csv", "w", newline="") as f:
         csv.writer(f).writerows([header] + rows)
     widths = [22, 9, 15, 9, 7, 7, 10, 7, 15]
     for row in [header] + rows:
