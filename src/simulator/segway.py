@@ -21,7 +21,7 @@ or rendering.
 
 import numpy as np
 
-from ..controllers.nonlinear_mpc import segway_integrator, segway_ocp
+from .plant import segway_integrator
 
 
 from ..models import measure, CONFIG
@@ -38,15 +38,15 @@ from .control_loop import ControlLoop
 
 # ================================ Tuning =========================================
 
-# Weights on [s, ds, theta, dtheta, psi, dpsi] and [tau_l, tau_r]
+# Weights on [s, ds, theta, dtheta, psi, dpsi, x, y] and [tau_l, tau_r]
+
 Q_LQR = np.diag([1.0, 0.1, 1.0, 0.1, 100.0, 1.0])
 R_LQR = np.diag([0.01, 0.01])
 
 Q_LINEAR_MPC = np.diag([0.1, 0.1, 1.0, 0.1, 100.0, 1.0])
 R_LINEAR_MPC = np.diag([0.01, 0.01])
 
-# s and theta get no weight: they would fight the goal
-Q_NONLINEAR_MPC = np.diag([0.0, 0.1, 0.0, 1.0, 100.0, 100.0, 1.0, 1.0])
+Q_NONLINEAR_MPC = np.diag([0.1, 0.1, 1.0, 1.0, 100.0, 100.0, 1.0, 1.0])
 R_NONLINEAR_MPC = np.diag([0.01, 0.01])
 
 # The model has no floor: past this pitch the body would swing through the
@@ -70,7 +70,7 @@ class Segway:
         self.control_loop = self.create_controller_and_observer(
             controller_type, observer_type
         )
-        self.plant = segway_integrator(segway_ocp(Q_NONLINEAR_MPC, R_NONLINEAR_MPC))
+        self.plant = segway_integrator(physics_dt)
         self.plant.set("T", physics_dt)
         self.physics_dt = physics_dt
 
@@ -87,7 +87,6 @@ class Segway:
         self.torque = np.zeros(2)  # applied torque, held between controller updates
         self.step_count = 0
         self.history = History()
-        self.position = np.zeros(2)
 
     # ============================== Running ==============================
     def step(self, time: float) -> None:
