@@ -95,6 +95,7 @@ class ControlPanel:
         estimated_pitch = history[HistoryIndex.ESTIMATED_PITCH]
         torque = history[HistoryIndex.TORQUE]
         torque_limit = CONFIG.mpc.torque_constraint
+        pitch_limit = np.rad2deg(CONFIG.mpc.pitch_constraint)
 
         if len(time) == 0:
             print("ERR: there does not exists any history")
@@ -112,8 +113,26 @@ class ControlPanel:
                 imgui.Cond_.always,
             )
 
+            implot.setup_axis_limits(
+                implot.ImAxis_.y1,
+                -1.1 * pitch_limit,
+                1.1 * pitch_limit,
+                imgui.Cond_.always,
+            )
+
             implot.plot_line("true", time, np.array(true_pitch))
             implot.plot_line("estimated", time, np.array(estimated_pitch))
+
+            # Red limit lines
+            implot.plot_inf_lines(
+                "limit",
+                np.array([-pitch_limit, pitch_limit]),
+                spec=implot.Spec(
+                    line_color=imgui.ImVec4(1.0, 0.3, 0.3, 1.0),
+                    line_weight=1.5,
+                    flags=implot.InfLinesFlags_.horizontal,
+                ),
+            )
             implot.end_plot()
 
         imgui.separator()

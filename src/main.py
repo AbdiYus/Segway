@@ -21,7 +21,7 @@ def main() -> None:
     initial_state[StateIndex.PITCH] = INITIAL_PITCH
 
     segway = Segway(
-        ControllerType.NONLINEAR_MPC,
+        ControllerType.LINEAR_MPC,
         ObserverType.UNSCENTED_KALMAN_FILTER,
         initial_state,
         PHYSICS_DT,

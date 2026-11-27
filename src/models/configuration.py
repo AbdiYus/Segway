@@ -45,8 +45,8 @@ class MPCSettings:
     T: float = 0.1  # [seconds]
     horizon: int = 20  # [MPC window]
     torque_constraint: float = 0.08  # [Nm]
-    pitch_constraint: float = np.radians(10)  # [rad]
-    pitch_rate_constraint: float = np.radians(60)  # [rad/s]
+    pitch_constraint: float = np.radians(5)  # [rad]
+    pitch_rate_constraint: float = np.radians(10)  # [rad/s]
     displacement_rate_constraint: float = 1.0  # [m/s]
     slack_weight: float = 1e4
 

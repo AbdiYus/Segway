@@ -165,7 +165,7 @@ def segway_integrator(ocp: AcadosOcp) -> AcadosSimSolver:
     return AcadosSimSolver(sim, json_file=str(BUILD_DIR / "acados_sim_plant.json"))
 
 
-WAYPOINT_DISTANCE = 0.2  # [m] how far ahead the terminal target may be placed
+WAYPOINT_DISTANCE = 0.8  # [m] how far ahead the terminal target may be placed
 
 
 class NonlinearMPC:
